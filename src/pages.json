@@ -1,0 +1,119 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^wd-(.*)": "wot-design-uni/components/wd-$1/wd-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/home/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "首页",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/task/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "我的任务",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/record/detail",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "报工详情"
+      }
+    },
+    {
+      "path": "pages/password/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "修改密码"
+      }
+    },
+    {
+      "path": "pages/wage/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "工费明细",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/stats/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "数据统计",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/record/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "报工记录",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/mine/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/scan/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "扫码报工"
+      }
+    },
+    {
+      "path": "pages/report/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "报工"
+      }
+    },
+    {
+      "path": "pages/batch/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "批量报工"
+      }
+    },
+    {
+      "path": "pages/exception/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "异常上报"
+      }
+    },
+    {
+      "path": "pages/result/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "报工成功"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "员工报工",
+    "navigationBarBackgroundColor": "#F4F7FB",
+    "backgroundColor": "#F4F7FB"
+  }
+}

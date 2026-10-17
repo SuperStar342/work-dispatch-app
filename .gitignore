@@ -147,3 +147,12 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Local scratch
+_jtmp/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

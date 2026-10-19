@@ -7,7 +7,7 @@
         <text>{{ month }}</text>
         <text class="arrow" :class="{ off: futureBlocked }" @click="shift(1)">›</text>
       </view>
-      <view class="hero card">
+      <view v-if="showWage" class="hero card">
         <text class="label">{{ t('wage.month') }}</text>
         <text class="big">¥ {{ money(total) }}</text>
         <view class="split">
@@ -15,7 +15,7 @@
           <view><text>{{ t('wage.time') }}</text><text>¥ {{ money(timed) }}</text></view>
         </view>
       </view>
-      <text class="note">{{ t('wage.note') }}</text>
+      <text v-if="showWage" class="note">{{ t('wage.note') }}</text>
       <view class="sec">
         <text class="h">{{ t('wage.section') }}</text>
         <text class="count">{{ t('wage.count', { n: lines.length }) }}</text>
@@ -29,7 +29,7 @@
         </view>
         <view class="line-side">
           <text class="tag" :class="row.mode === 'time' ? 'time' : 'piece'">{{ row.mode === 'time' ? t('record.time') : t('record.piece') }}</text>
-          <text class="pay">¥ {{ money(lineWage(row)) }}</text>
+          <text v-if="showWage" class="pay">¥ {{ money(lineWage(row)) }}</text>
         </view>
       </view>
     </view>
@@ -45,7 +45,7 @@ import { t } from '@/i18n'
 import { getReportRecords } from '@/api/mes/workReport'
 import { useUserStore } from '@/store/user'
 import { go } from '@/utils/nav'
-import { lineWage, listTimeReports, money, rememberRecord } from '@/utils/wage'
+import { lineWage, listTimeReports, money, rememberRecord, showWage } from '@/utils/wage'
 import type { WorkReportRecord } from '@/types/mes'
 
 const user = useUserStore()

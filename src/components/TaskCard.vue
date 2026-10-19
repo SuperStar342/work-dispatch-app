@@ -28,7 +28,7 @@ import { computed } from 'vue'
 import type { MyTask } from '@/types/mes'
 import { fmtQty, num } from '@/utils/format'
 import { t } from '@/i18n'
-import { isTimeWage, money, taskPrice } from '@/utils/wage'
+import { isTimeWage, money, showWage, taskPrice } from '@/utils/wage'
 import ReportProgress from './ReportProgress.vue'
 
 const props = defineProps<{ task: MyTask }>()
@@ -60,6 +60,7 @@ const subLine = computed(() => {
 })
 const priceLine = computed(() => {
   const left = t('task.remain', { n: fmtQty(props.task.pendingQty) })
+  if (!showWage) return left
   const price = taskPrice(props.task)
   if (price <= 0) return left
   const label = timed.value

@@ -42,14 +42,14 @@
           <view class="custom" @click="fillMax">{{ t('report.custom') }}</view>
         </view>
         <text v-if="editing" class="note">{{ t('report.editHint', { no: editing.reportNo, n: fmtQty(originalQty), max: fmtQty(maxQty) }) }}</text>
-        <view class="fee">
+        <view v-if="showWage" class="fee">
           <view class="row"><text>{{ t('report.price') }}</text><text>{{ t('task.pricePiece', { n: money(price) }) }}</text></view>
           <view class="row est"><text>{{ t('report.estimate') }}</text><text class="estn">¥ {{ money(pieceWage) }}</text></view>
         </view>
       </view>
 
       <view v-else class="card block">
-        <view class="row"><text class="h">{{ t('report.hourPrice') }}</text><text>{{ t('task.priceHour', { n: money(price) }) }}</text></view>
+        <view v-if="showWage" class="row"><text class="h">{{ t('report.hourPrice') }}</text><text>{{ t('task.priceHour', { n: money(price) }) }}</text></view>
         <view class="switch">
           <text :class="{ on: !timingMode }" @click="timingMode = false">{{ t('report.manual') }}</text>
           <text :class="{ on: timingMode }" @click="timingMode = true">{{ t('report.timer') }}</text>
@@ -77,7 +77,7 @@
         <view v-else class="timer" @click="toggleTimer">{{ timing ? t('report.timing', { n: elapsedText }) : t('report.timer') }}</view>
         <text class="h">{{ t('report.hours') }}</text>
         <input class="qty" type="digit" :value="hours" @input="onHours" />
-        <view class="fee">
+        <view v-if="showWage" class="fee">
           <view class="row est"><text>{{ t('report.estimate') }}</text><text class="estn">¥ {{ money(timeWage) }}</text></view>
         </view>
         <text class="note">{{ editing ? t('report.editTimeHint') : t('report.timeNote') }}</text>
@@ -121,7 +121,7 @@ import { getWtWorkers } from '@/api/mes/dispatch'
 import { submitDispatchReport, updateDispatchReport } from '@/api/mes/workReport'
 import { fmtQty, nowText } from '@/utils/format'
 import { locale, t } from '@/i18n'
-import { isTimeWage, money, readRecord, saveTimeReport, taskPrice, touchRecent, updateTimeReport } from '@/utils/wage'
+import { isTimeWage, money, readRecord, saveTimeReport, showWage, taskPrice, touchRecent, updateTimeReport } from '@/utils/wage'
 import { playReportSound, unlockReportSound } from '@/utils/sound'
 import type { MyTask, WorkReportRecord, WtWorker } from '@/types/mes'
 

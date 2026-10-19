@@ -1,6 +1,9 @@
 import { num } from '@/utils/format'
 import type { MyTask, WorkReportRecord } from '@/types/mes'
 
+/** 工价、工费先不展示。改回 true 即可恢复，不必改各页面。 */
+export const showWage = false
+
 const TIME_KEY = 'wd-time-reports'
 const RECENT_KEY = 'wd-recent-tasks'
 

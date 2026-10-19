@@ -15,7 +15,7 @@
           <view>
             <text class="code">{{ r.wtNo }}  {{ r.goodsName || r.prcName }}</text>
             <text class="d">{{ r.reportTime }}</text>
-            <text class="d">{{ r.mode === 'time' ? t('record.hourLine') : t('record.qtyLine') }} {{ fmtQty(r.hours || r.reportQty) }} · ¥ {{ money(lineWage(r)) }}</text>
+            <text class="d">{{ r.mode === 'time' ? t('record.hourLine') : t('record.qtyLine') }} {{ fmtQty(r.hours || r.reportQty) }}{{ showWage ? ` · ¥ ${money(lineWage(r))}` : '' }}</text>
           </view>
           <StatusTag :text="r.mode === 'time' ? '计时' : tagOf(r)" />
         </view>
@@ -37,7 +37,7 @@ import { useUserStore } from '@/store/user'
 import { getToken } from '@/utils/auth'
 import { t } from '@/i18n'
 import { go } from '@/utils/nav'
-import { lineWage, listTimeReports, money, rememberRecord } from '@/utils/wage'
+import { lineWage, listTimeReports, money, rememberRecord, showWage } from '@/utils/wage'
 import type { WorkReportRecord } from '@/types/mes'
 
 const statusBar = uni.getSystemInfoSync().statusBarHeight || 20

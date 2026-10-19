@@ -13,7 +13,7 @@
       </view>
       <view class="card block">
         <view class="line"><text>{{ row.mode === 'time' ? t('record.hourLine') : t('record.qtyLine') }}</text><text>{{ fmtQty(row.hours || row.reportQty) }}</text></view>
-        <view class="line"><text>{{ t('report.estimate') }}</text><text class="pay">¥ {{ money(lineWage(row)) }}</text></view>
+        <view v-if="showWage" class="line"><text>{{ t('report.estimate') }}</text><text class="pay">¥ {{ money(lineWage(row)) }}</text></view>
         <view class="line"><text>{{ t('record.title') }}</text><text>{{ row.reportTime || '--' }}</text></view>
         <view class="line"><text>{{ t('emp.label') }}</text><text>{{ row.reporter || '--' }}</text></view>
         <view v-if="row.remark" class="line"><text>{{ t('report.remark') }}</text><text>{{ row.remark }}</text></view>
@@ -35,7 +35,7 @@ import NavBar from '@/components/NavBar.vue'
 import { t } from '@/i18n'
 import { fmtQty } from '@/utils/format'
 import { go } from '@/utils/nav'
-import { lineWage, money, readRecord, rememberRecord, removeTimeReport } from '@/utils/wage'
+import { lineWage, money, readRecord, rememberRecord, removeTimeReport, showWage } from '@/utils/wage'
 import { withdrawDispatchReport } from '@/api/mes/workReport'
 import { useUserStore } from '@/store/user'
 import type { WorkReportRecord } from '@/types/mes'

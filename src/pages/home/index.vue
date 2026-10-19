@@ -11,7 +11,7 @@
       </view>
     </view>
 
-    <view class="hero card" @click="go('/pages/wage/index')">
+    <view v-if="showWage" class="hero card" @click="go('/pages/wage/index')">
       <text class="hero-label">{{ t('home.wageToday') }}</text>
       <view class="hero-num">
         <text class="yen">¥</text>
@@ -91,7 +91,7 @@ import AppTabBar from '@/components/AppTabBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import TaskCard from '@/components/TaskCard.vue'
 import type { MyTask, WorkReportRecord } from '@/types/mes'
-import { isTimeWage, lineWage, listTimeReports, money } from '@/utils/wage'
+import { isTimeWage, lineWage, listTimeReports, money, showWage } from '@/utils/wage'
 
 const statusBar = uni.getSystemInfoSync().statusBarHeight || 20
 const user = useUserStore()

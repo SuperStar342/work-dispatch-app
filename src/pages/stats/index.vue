@@ -20,7 +20,7 @@
 
       <view v-if="loading && !rows.length" class="pad">{{ t('common.loading') }}</view>
       <template v-else>
-        <view class="hero card">
+        <view v-if="showWage" class="hero card">
           <text class="label">{{ t('stats.total') }}</text>
           <text class="big">¥ {{ money(current.wage) }}</text>
           <text class="delta">{{ deltaText }}</text>
@@ -32,8 +32,8 @@
         <text class="note">{{ t('stats.note') }}</text>
 
         <template v-if="section === 'overview'">
-          <text class="h">{{ t('stats.trend') }}</text>
-          <view class="card panel">
+          <text v-if="showWage" class="h">{{ t('stats.trend') }}</text>
+          <view v-if="showWage" class="card panel">
             <view v-if="!trend.length" class="pad">{{ t('stats.empty') }}</view>
             <view v-else class="bars">
               <view v-for="point in trend" :key="point.label" class="bar-col">
@@ -51,7 +51,7 @@
               <text class="qty-n">{{ fmtQty(current.pieceQty) }}</text>
               <text class="qty-sub">{{ t('record.piece') }}</text>
             </view>
-            <view class="donut" :style="donutStyle">
+            <view v-if="showWage" class="donut" :style="donutStyle">
               <view class="hole"><text>{{ share(current.pieceWage, current.wage) }}%</text></view>
             </view>
             <view>
@@ -65,7 +65,7 @@
           <view class="periods inner">
             <text v-for="item in groups" :key="item.key" class="chip" :class="{ on: group === item.key }" @click="group = item.key">{{ item.label }}</text>
           </view>
-          <view v-if="section === 'wage'" class="card mix">
+          <view v-if="showWage && section === 'wage'" class="card mix">
             <view class="donut lg" :style="donutStyle">
               <view class="hole"><text>¥ {{ money(current.wage) }}</text></view>
             </view>
@@ -83,9 +83,10 @@
               <view class="track"><view :style="{ width: share(section === 'wage' ? row.wage : row.pieceQty + row.hours, rankBase) + '%' }" /></view>
             </view>
             <view class="line-side">
-              <text v-if="section === 'wage'" class="pay">¥ {{ money(row.wage) }}</text>
+              <text v-if="showWage && section === 'wage'" class="pay">¥ {{ money(row.wage) }}</text>
               <text v-else class="pay">{{ fmtQty(row.pieceQty) }} / {{ fmtQty(row.hours) }}h</text>
-              <text class="sub">{{ section === 'wage' ? share(row.wage, current.wage) : outputShare(row) }}%</text>
+              <text v-if="showWage && section === 'wage'" class="sub">{{ share(row.wage, current.wage) }}%</text>
+              <text v-else class="sub">{{ outputShare(row) }}%</text>
             </view>
           </view>
         </template>
@@ -103,7 +104,7 @@ import { t } from '@/i18n'
 import { fmtQty } from '@/utils/format'
 import { getReportRecords } from '@/api/mes/workReport'
 import { useUserStore } from '@/store/user'
-import { lineWage, listTimeReports, money } from '@/utils/wage'
+import { lineWage, listTimeReports, money, showWage } from '@/utils/wage'
 import { groupRows, monthBounds, previousWindow, rowsInRange, share, spanDays, topBuckets, trendPoints, type StatGroup } from '@/utils/stats'
 import type { WorkReportRecord } from '@/types/mes'
 
@@ -124,7 +125,7 @@ const periods = computed(() => [
 ])
 const sections = computed(() => [
   { key: 'overview' as const, label: t('stats.overview') },
-  { key: 'wage' as const, label: t('stats.wage') },
+  ...(showWage ? [{ key: 'wage' as const, label: t('stats.wage') }] : []),
   { key: 'output' as const, label: t('stats.output') },
 ])
 const groups = computed(() => [

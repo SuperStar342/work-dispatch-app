@@ -12,9 +12,12 @@ type RequestOptions = {
   isToken?: boolean
   silentError?: boolean
   timeout?: number
+  /** Internal guard: retry an authenticated request at most once. */
+  _authRetried?: boolean
 }
 
 let redirecting = false
+let refreshPromise: Promise<boolean> | null = null
 
 const qs = (params?: Record<string, any>) => {
   if (!params) return ''
@@ -78,8 +81,8 @@ export async function request<T = any>(options: RequestOptions): Promise<T> {
   const body: any = res.data
 
   if (isToken && (status === 401 || /认证信息已过期|令牌已失效|令牌已过期|缺失令牌/.test(String(body?.msg || body?.error_description || '')))) {
-    const refreshed = await tryRefresh()
-    if (refreshed) return request(options)
+    const refreshed = options._authRetried ? false : await tryRefresh()
+    if (refreshed) return request({ ...options, _authRetried: true })
     toLogin(t('err.expired'))
     throw new Error(t('err.expired'))
   }
@@ -103,7 +106,16 @@ export async function request<T = any>(options: RequestOptions): Promise<T> {
   return body as T
 }
 
-async function tryRefresh() {
+function tryRefresh() {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
+}
+
+async function refreshAccessToken() {
   const refresh = getRefreshToken()
   if (!refresh) return false
   try {

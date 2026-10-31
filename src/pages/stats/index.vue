@@ -104,7 +104,7 @@ import { t } from '@/i18n'
 import { fmtQty } from '@/utils/format'
 import { getReportRecords } from '@/api/mes/workReport'
 import { useUserStore } from '@/store/user'
-import { lineWage, listTimeReports, money, showWage } from '@/utils/wage'
+import { isCountableWage, lineWage, listTimeReports, money, showWage } from '@/utils/wage'
 import { groupRows, monthBounds, previousWindow, rowsInRange, share, spanDays, topBuckets, trendPoints, type StatGroup } from '@/utils/stats'
 import type { WorkReportRecord } from '@/types/mes'
 
@@ -139,7 +139,9 @@ const range = computed(() => {
   if (period.value === 'custom') return { start: customStart.value, end: customEnd.value }
   return monthBounds(0)
 })
-const currentRows = computed(() => rowsInRange(rows.value, range.value.start, range.value.end))
+const currentRows = computed(() =>
+  rowsInRange(rows.value, range.value.start, range.value.end).filter(isCountableWage)
+)
 const sumOf = (list: WorkReportRecord[]) =>
   list.reduce(
     (sum, row) => {
@@ -159,7 +161,7 @@ const sumOf = (list: WorkReportRecord[]) =>
 const current = computed(() => sumOf(currentRows.value))
 const previous = computed(() => {
   const prev = previousWindow(range.value.start, range.value.end)
-  return sumOf(rowsInRange(rows.value, prev.start, prev.end))
+  return sumOf(rowsInRange(rows.value, prev.start, prev.end).filter(isCountableWage))
 })
 const deltaText = computed(() => {
   if (previous.value.wage <= 0) return current.value.wage > 0 ? t('stats.noBase') : ''

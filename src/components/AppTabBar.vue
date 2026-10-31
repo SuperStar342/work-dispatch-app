@@ -10,6 +10,7 @@
       >
         <view class="glyph">
           <wd-icon :name="item.icon" size="22px" :color="current === item.url ? '#4e88f3' : '#8b95a7'" />
+          <view v-if="item.url === '/pages/record/index' && unread" class="dot" />
         </view>
         <text class="label">{{ item.label }}</text>
       </view>
@@ -21,8 +22,10 @@
 import { computed } from 'vue'
 import { goTab } from '@/utils/nav'
 import { t } from '@/i18n'
+import { auditNotices } from '@/utils/auditNotice'
 
 const props = defineProps<{ current: string }>()
+const unread = computed(() => auditNotices.items.length)
 
 const items = computed(() => [
   { icon: 'home', label: t('tab.home'), url: '/pages/home/index' },
@@ -70,12 +73,23 @@ const go = (url: string) => {
   color: #8b95a7;
 }
 .glyph {
+  position: relative;
   width: 56rpx;
   height: 40rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 20rpx;
+}
+.dot {
+  position: absolute;
+  top: -4rpx;
+  right: -4rpx;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 2rpx solid #fff;
 }
 .tab.active .glyph {
   background: var(--color-primary-soft);

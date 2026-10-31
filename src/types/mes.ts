@@ -27,6 +27,10 @@ export type MyTask = {
   machiningUp?: number
   /** 1集体计件 2个人计件 3计时 4不计件，接口也可能返回中文 */
   pWageType?: string
+  /** 非生产派工单号（计时报工提交时用） */
+  owtNo?: string
+  /** 非生产派工行序号 */
+  sNo?: number
 }
 
 export type DispatchReportPayload = {
@@ -98,6 +102,24 @@ export type WorkReportRecord = {
   wage?: number
   start?: string
   end?: string
+  /** 报工单审核标记。1 或「已审核」表示审核通过 */
+  cFlag?: string
+  /** 审核人 */
+  approver?: string
+  /** 审核时间 */
+  appDate?: string
+  /** 审核状态文案：已审核 / 未审核 / 已驳回 / 已撤回 */
+  auditStatus?: string
+  /** 驳回/撤回人 */
+  canceler?: string
+  /** 驳回/撤回时间 */
+  cancelDate?: string
+  /** 审核人写下的驳回原因 */
+  rejectReason?: string
+  /** 非生产派工单号 */
+  owtNo?: string
+  /** 派工单行序号 */
+  sNo?: number
 }
 
 export type WtWorker = {

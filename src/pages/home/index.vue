@@ -9,6 +9,13 @@
           <text class="shift">{{ t('home.emp', { no: user.empNo || '--' }) }}{{ user.isLeader ? t('home.leader') : '' }}</text>
         </view>
       </view>
+      <view class="bell" @click="go('/pages/message/index')">
+        <svg class="bell-svg" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.2a1 1 0 0 1 1 1V5a5.6 5.6 0 0 1 4.6 5.5V14l1.2 2.1a1 1 0 0 1-.9 1.5H6.1a1 1 0 0 1-.9-1.5L6.4 14v-3.5A5.6 5.6 0 0 1 11 5V4.2a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          <path d="M9.6 18.6a2.4 2.4 0 0 0 4.8 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+        <view v-if="auditNotices.items.length" class="bell-dot" />
+      </view>
     </view>
 
     <view v-if="showWage" class="hero card" @click="go('/pages/wage/index')">
@@ -57,11 +64,14 @@
       </view>
     </view>
 
+    <!--
+    暂时关闭扫码报工、批量报工和异常上报入口，保留页面与路由便于后续恢复。
     <view class="links">
       <text @click="go('/pages/scan/index')">{{ t('home.scan') }}</text>
       <text @click="go('/pages/batch/index')">{{ t('home.batch') }}</text>
       <text @click="go('/pages/exception/index')">{{ t('home.exception') }}</text>
     </view>
+    -->
 
     <view class="sec">
       <text class="sec-title">{{ t('home.todayTasks') }}</text>
@@ -83,7 +93,7 @@ import { t, tx } from '@/i18n'
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user'
 import { useReportContext } from '@/store/reportContext'
-import { getReportRecords } from '@/api/mes/workReport'
+import { getReportRecords, getTimeRecords } from '@/api/mes/workReport'
 import { fmtQty, todayPrefix } from '@/utils/format'
 import { go, goTab } from '@/utils/nav'
 import { getToken } from '@/utils/auth'
@@ -91,7 +101,8 @@ import AppTabBar from '@/components/AppTabBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import TaskCard from '@/components/TaskCard.vue'
 import type { MyTask, WorkReportRecord } from '@/types/mes'
-import { isTimeWage, lineWage, listTimeReports, money, showWage } from '@/utils/wage'
+import { isCountableWage, isTimeWage, lineWage, listTimeReports, mapServerTimeReports, money, showWage } from '@/utils/wage'
+import { auditNotices, refreshAuditNotices } from '@/utils/auditNotice'
 
 const statusBar = uni.getSystemInfoSync().statusBarHeight || 20
 const user = useUserStore()
@@ -104,22 +115,41 @@ const todoCount = computed(() => ctx.tasks.filter((task) => task.status === '待
 const runCount = computed(() => ctx.tasks.filter((task) => task.status === '生产中').length)
 const doneCount = computed(() => ctx.tasks.filter((task) => task.status === '已完成').length)
 
+const timeRecords = ref<any[]>([])
+
 const dayWage = (day: string) => {
   const server = records.value
     .filter((row) => String(row.reportTime || '').startsWith(day))
+    .filter(isCountableWage)
     .reduce((sum, row) => sum + lineWage(row), 0)
-  const local = listTimeReports()
+  const time = timeRecords.value
     .filter((row) => String(row.reportTime || '').startsWith(day))
+    .filter(isCountableWage)
     .reduce((sum, row) => sum + lineWage(row), 0)
-  return server + local
+  // 本地仅保留服务端没有的草稿，避免重复计算
+  const serverNos = new Set(timeRecords.value.map((r) => String(r.reportNo)))
+  const local = listTimeReports()
+    .filter((row) => !serverNos.has(String(row.reportNo)))
+    .filter((row) => String(row.reportTime || '').startsWith(day))
+    .filter(isCountableWage)
+    .reduce((sum, row) => sum + lineWage(row), 0)
+  return server + time + local
 }
 
 const localHours = computed(() => {
   void records.value
   const today = todayPrefix()
-  return listTimeReports()
+  const serverNos = new Set(timeRecords.value.map((r) => String(r.reportNo)))
+  const fromServer = timeRecords.value
     .filter((row) => String(row.reportTime || '').startsWith(today))
+    .filter(isCountableWage)
     .reduce((sum, row) => sum + Number(row.hours || row.reportQty || 0), 0)
+  const fromLocal = listTimeReports()
+    .filter((row) => !serverNos.has(String(row.reportNo)))
+    .filter((row) => String(row.reportTime || '').startsWith(today))
+    .filter(isCountableWage)
+    .reduce((sum, row) => sum + Number(row.hours || row.reportQty || 0), 0)
+  return fromServer + fromLocal
 })
 const subline = computed(() => {
   const piece = todayQty.value > 0 ? t('home.today', { n: fmtQty(todayQty.value) }) : ''
@@ -140,24 +170,38 @@ const deltaText = computed(() => {
 })
 
 const load = async (force = false) => {
-  await ctx.load({ force, pageSize: 10, empNo: user.empNo, isLeader: user.isLeader })
-  try {
-    const scoped = !user.isLeader
-    const rec = await getReportRecords(
-      { pageNo: 1, pageSize: 50, keyword: scoped ? undefined : user.empNo },
-      { mine: scoped },
-    )
-    records.value = rec.data.list || []
-    const today = todayPrefix()
-    todayQty.value = records.value.reduce((sum, row) => {
-      const time = String(row.reportTime || '')
-      const mine = scoped || !user.empNo || String(row.reporter || '').includes(user.empNo) || String(row.reporter || '').includes(user.displayName)
-      return time.startsWith(today) && mine ? sum + Number(row.reportQty || 0) : sum
-    }, 0)
-  } catch {
-    records.value = []
-    todayQty.value = 0
-  }
+  const scoped = !user.isLeader
+  let noticeRows: WorkReportRecord[] = []
+  // 计时报工：服务端数据优先
+  const timeTask = getTimeRecords({ limit: 200 })
+    .then((raw) => {
+      timeRecords.value = mapServerTimeReports(raw)
+    })
+    .catch(() => {
+      timeRecords.value = []
+    })
+  const recordsTask = getReportRecords({ pageNo: 1, pageSize: 50 }, { mine: scoped })
+    .then(async (rec) => {
+      records.value = rec.data.list || []
+      noticeRows = records.value
+      const emp = String(user.empNo || user.account || '')
+      if (!noticeRows.length && scoped && !/^\d{4,}$/.test(emp)) {
+        const team = await getReportRecords({ pageNo: 1, pageSize: 50 })
+        noticeRows = team.data.list || []
+      }
+      const today = todayPrefix()
+      todayQty.value = records.value.reduce((sum, row) => {
+        const time = String(row.reportTime || '')
+        const mineRow = scoped || !user.empNo || String(row.reporter || '').includes(user.empNo) || String(row.reporter || '').includes(user.displayName)
+        return time.startsWith(today) && mineRow && isCountableWage(row) ? sum + Number(row.reportQty || 0) : sum
+      }, 0)
+    })
+    .catch(() => {
+      records.value = []
+      todayQty.value = 0
+    })
+  await Promise.all([ctx.load({ force, pageSize: 10, empNo: user.empNo, isLeader: user.isLeader }), recordsTask, timeTask])
+  refreshAuditNotices([...timeRecords.value, ...noticeRows])
 }
 
 const openTask = (task: MyTask) => {
@@ -184,6 +228,36 @@ onPullDownRefresh(async () => {
 }
 .header {
   padding: 12rpx 8rpx 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+.bell {
+  position: relative;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: #fff;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.bell-svg {
+  width: 40rpx;
+  height: 40rpx;
+}
+.bell-dot {
+  position: absolute;
+  top: 12rpx;
+  right: 12rpx;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 2rpx solid #fff;
 }
 .who {
   display: flex;

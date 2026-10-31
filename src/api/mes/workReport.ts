@@ -99,3 +99,96 @@ export async function getReportRecords(params?: Record<string, any>, opts?: { mi
   })
   return adaptPage(res)
 }
+
+export async function getNonProdTasks(params?: {
+  keyword?: string
+  onlyPending?: boolean
+  limit?: number
+}) {
+  const res: any = await request({
+    url: '/blade-system/employee-task/non-prod-tasks',
+    method: 'GET',
+    params: {
+      keyword: params?.keyword || '',
+      onlyPending: params?.onlyPending || false,
+      limit: params?.limit || 200,
+    },
+  })
+  const data = unwrap(res)
+  return Array.isArray(data) ? data : []
+}
+
+/** 提交计时报工（非生产派工）：写入 ERP 非生产完工申报，待 PC 端审核 */
+export async function submitTimeReport(payload: {
+  owtNo: string
+  sNo?: number
+  hours: number
+  reportTime?: string
+  remark?: string
+}) {
+  if (!payload.owtNo) throw new Error(t('val.owt'))
+  if (!payload.hours || payload.hours <= 0) throw new Error(t('report.needHours'))
+  const res: any = await request({
+    url: '/blade-system/employee-task/submit-time',
+    method: 'POST',
+    data: payload,
+  })
+  const envelope = getEnvelope(res) || {}
+  if (envelope.success === false || (envelope.code != null && Number(envelope.code) !== 200)) {
+    throw new Error(envelope.msg || envelope.error_description || t('report.failed'))
+  }
+  const data = unwrap(res)
+  if (!data?.fnNo) throw new Error(envelope.msg || t('val.noReportNo'))
+  return data as { fnNo: string; reportNo: string; hours: number; workTime: number; wageAmt: number; pendingQty: number }
+}
+
+/** 本人计时报工记录（服务端，含审核状态） */
+export async function getTimeRecords(params?: { keyword?: string; limit?: number }) {
+  const res: any = await request({
+    url: '/blade-system/employee-task/time-records',
+    method: 'GET',
+    params: {
+      keyword: params?.keyword || '',
+      limit: params?.limit || 200,
+    },
+  })
+  const data = unwrap(res)
+  return Array.isArray(data) ? data : []
+}
+
+/** 撤回本人计时报工（仅未审核；已驳回的也可撤回后重新提交） */
+export async function withdrawTimeReport(fnNo: string) {
+  if (!fnNo) throw new Error(t('val.reportNo'))
+  const res: any = await request({
+    url: '/blade-system/employee-task/withdraw-time',
+    method: 'POST',
+    params: { fnNo },
+  })
+  const envelope = getEnvelope(res) || {}
+  if (envelope.success === false || (envelope.code != null && Number(envelope.code) !== 200)) {
+    throw new Error(envelope.msg || envelope.error_description || t('report.failed'))
+  }
+  return unwrap(res)
+}
+
+/** 修改本人计时报工（仅未审核；服务端改单，不产生新单） */
+export async function updateTimeReport(
+  fnNo: string,
+  payload: { hours: number; reportTime?: string; remark?: string }
+) {
+  if (!fnNo) throw new Error(t('val.reportNo'))
+  if (!payload.hours || payload.hours <= 0) throw new Error(t('report.needHours'))
+  const res: any = await request({
+    url: '/blade-system/employee-task/update-time',
+    method: 'POST',
+    params: { fnNo },
+    data: payload,
+  })
+  const envelope = getEnvelope(res) || {}
+  if (envelope.success === false || (envelope.code != null && Number(envelope.code) !== 200)) {
+    throw new Error(envelope.msg || envelope.error_description || t('report.failed'))
+  }
+  const data = unwrap(res)
+  if (!data?.fnNo) throw new Error(envelope.msg || t('report.failed'))
+  return data as { fnNo: string; reportNo: string; hours: number; workTime: number; wageAmt: number }
+}

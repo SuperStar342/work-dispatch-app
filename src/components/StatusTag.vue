@@ -10,6 +10,7 @@ const statusKey: Record<string, string> = {
   已完成: 'status.done',
   完成: 'status.done',
   已通过: 'status.passed',
+  已审核: 'status.audited',
   去报工: 'status.report',
   待报工: 'status.toReport',
   待开始: 'status.notStarted',
@@ -20,15 +21,18 @@ const statusKey: Record<string, string> = {
   生产中: 'status.producing',
   计时: 'record.time',
   计件: 'record.piece',
+  已驳回: 'record.rejected',
+  已撤回: 'record.withdrawn',
 }
 
 const props = defineProps<{ text: string }>()
 const label = computed(() => (statusKey[props.text] ? t(statusKey[props.text]) : props.text))
 const tone = computed(() => {
   const t = props.text
-  if (['已完成', '已通过', '完成'].includes(t)) return 'ok'
+  if (['已完成', '已通过', '完成', '已审核'].includes(t)) return 'ok'
   if (['去报工', '待报工', '待开始', '待审核'].includes(t)) return 'warn'
-  if (['不良品', '异常'].includes(t)) return 'bad'
+  if (['不良品', '异常', '已驳回'].includes(t)) return 'bad'
+  if (t === '已撤回') return 'info'
   return 'info'
 })
 </script>

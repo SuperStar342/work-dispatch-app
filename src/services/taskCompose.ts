@@ -77,21 +77,33 @@ async function mapWt(wt: any, empNo?: string, isLeader?: boolean): Promise<MyTas
 
 /** 普通员工：后端按登录工号直接返回本人任务，不依赖派工菜单权限 */
 async function composeOwnTasks(opts: { pageSize?: number; keyword?: string }) {
-  const res: any = await request({
-    url: '/blade-system/employee-task/tasks',
-    method: 'GET',
-    params: { keyword: opts.keyword || '', limit: Math.max(opts.pageSize || 200, 200) },
-  })
-  const rows: any[] = (unwrap(res) as any[]) || []
-  const list: MyTask[] = rows
-    .filter((w) => w.prcCode)
+  const [prodRes, nonProdRes] = await Promise.all([
+    request({
+      url: '/blade-system/employee-task/tasks',
+      method: 'GET',
+      params: { keyword: opts.keyword || '', limit: Math.max(opts.pageSize || 200, 200) },
+    }),
+    request({
+      url: '/blade-system/employee-task/non-prod-tasks',
+      method: 'GET',
+      params: { keyword: opts.keyword || '', limit: 200 },
+      silentError: true,
+    }).catch(() => null),
+  ])
+  const rows: any[] = (unwrap(prodRes) as any[]) || []
+  const nonProdData = nonProdRes ? unwrap(nonProdRes) : []
+  const nonProdRows: any[] = Array.isArray(nonProdData) ? nonProdData : []
+  const list: MyTask[] = [...rows, ...nonProdRows]
+    .filter((w) => w.prcCode || w.prcName || w.owtNo)
     .map((w) => {
       const fnQty = num(w.fnQty)
       const planQty = num(w.planQty)
-      const pendingQty = Math.max(0, planQty - fnQty)
+      const taskNo = String(w.wtNo || w.owtNo || '')
+      // 后端已按人员级口径算好剩余量；缺失时退回 planQty - fnQty
+      const pendingQty = w.pendingQty != null ? Math.max(0, num(w.pendingQty)) : Math.max(0, planQty - fnQty)
       const task: MyTask = {
-        id: taskIdOf(String(w.wtNo || ''), w),
-        wtNo: String(w.wtNo || ''),
+        id: taskIdOf(taskNo, w),
+        wtNo: taskNo,
         woNo: String(w.woNo || ''),
         moNo: String(w.moNo || ''),
         goodsName: String(w.goodsName || ''),
@@ -101,7 +113,7 @@ async function composeOwnTasks(opts: { pageSize?: number; keyword?: string }) {
         prcName: String(w.prcName || ''),
         woBorSno: String(w.woBorSno || ''),
         goodsId: w.goodsId,
-        wsName: w.wsName,
+        wsName: w.wsName || w.deptName,
         deptName: w.deptName,
         empNo: String(w.empNo || ''),
         empName: String(w.empName || ''),
@@ -112,8 +124,10 @@ async function composeOwnTasks(opts: { pageSize?: number; keyword?: string }) {
         cFlag: w.cFlag,
         finishFlag: w.finishFlag,
         machiningUp: num(w.machiningUp),
-        pWageType: String(w.pWageType || ''),
-        status: mapStatus(fnQty, pendingQty),
+        pWageType: String(w.owtNo ? '3' : (w.pWageType || '')),
+        owtNo: String(w.owtNo || ''),
+        sNo: Number(w.sNo || 1),
+        status: w.status || mapStatus(fnQty, pendingQty),
       }
       return task
     })

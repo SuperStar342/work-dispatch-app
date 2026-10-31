@@ -3,6 +3,7 @@ import { loginByPassword, getUserInfo, logoutApi } from '@/api/auth'
 import { appConfig, STORAGE_KEYS } from '@/utils/config'
 import { parseJwt, setToken, setRefreshToken, clearAuth, getToken } from '@/utils/auth'
 import { t } from '@/i18n'
+import { resetAuditNotices } from '@/utils/auditNotice'
 
 const splitRoles = (roleName?: any) => {
   if (!roleName) return [] as string[]
@@ -53,6 +54,7 @@ export const useUserStore = defineStore('user', {
       if (this.account) this.applyOwnedEmp()
     },
     async login(username: string, password: string) {
+      resetAuditNotices()
       const data = await loginByPassword(username, password)
       const token = data.access_token
       if (!token) throw new Error(t('login.noToken'))
@@ -94,6 +96,7 @@ export const useUserStore = defineStore('user', {
     },
     async logout() {
       await logoutApi()
+      resetAuditNotices()
       clearAuth()
       this.token = ''
       this.account = ''

@@ -4,7 +4,13 @@ name: Deploy H5 to Webdock
 on:
   push:
     branches: [main]
+
   workflow_dispatch:
+    inputs:
+      target:
+        description: "选择部署服务器"
+        required: true
+        type: environment
 
 permissions:
   contents: read
@@ -16,7 +22,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: webdock-vps
+    environment: ${{ github.event_name == 'push' && 'webdock-vps' || inputs.target }}
 
     steps:
       - name: Checkout

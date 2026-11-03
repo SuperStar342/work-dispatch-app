@@ -16,7 +16,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: webdock
+    environment: webdock-vps
 
     steps:
       - name: Checkout

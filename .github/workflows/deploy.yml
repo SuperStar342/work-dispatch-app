@@ -64,6 +64,12 @@ jobs:
           ARCHIVE: h5-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
         run: |
           set -euo pipefail
+          : "${HOST:?DEPLOY_HOST 为空}"
+          : "${USER:?DEPLOY_USER 为空}"
+          : "${KEY:?DEPLOY_SSH_KEY 为空}"
+          : "${HOST_KEYS:?DEPLOY_KNOWN_HOSTS 为空}"
+          
+          echo "Deploying to ${USER}@${HOST}"
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh

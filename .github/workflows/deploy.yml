@@ -1,0 +1,103 @@
+
+name: Deploy H5 to Webdock
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webdock-h5
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: webdock
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build H5
+        env:
+          VITE_APP_BASE_URL: /api
+        run: pnpm run build:h5
+
+      - name: Collect files
+        shell: bash
+        run: |
+          mkdir release
+          for dir in dist/build/h5 dist/build/web \
+            unpackage/dist/build/web unpackage/dist/build/h5; do
+            if [ -f "$dir/index.html" ]; then
+              cp -a "$dir/." release/
+              break
+            fi
+          done
+          test -f release/index.html
+
+      - name: Upload and deploy
+        shell: bash
+        env:
+          HOST: ${{ vars.DEPLOY_HOST }}
+          USER: ${{ vars.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST_KEYS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          ARCHIVE: h5-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$HOST_KEYS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key
+
+          tar -czf "$ARCHIVE" -C release .
+
+          remote="${USER}@${HOST}"
+
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            "$ARCHIVE" "${remote}:~/$ARCHIVE"
+
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            "$remote" "bash -s -- '$ARCHIVE'" <<'REMOTE'
+          set -euo pipefail
+
+          archive="$1"
+          base="$HOME/work-h5"
+          version="v$(date -u +%Y%m%d%H%M%S)-$$"
+          directory="$base/releases/$version"
+
+          mkdir -p "$directory"
+          tar -xzf "$HOME/$archive" -C "$directory"
+          test -s "$directory/index.html"
+
+          ln -s "releases/$version" "$base/.work-next-$$"
+          mv -Tf "$base/.work-next-$$" "$base/work"
+
+          rm -f "$HOME/$archive"
+          echo "Deployed: $version"
+          REMOTE

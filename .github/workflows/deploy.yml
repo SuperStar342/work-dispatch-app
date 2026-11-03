@@ -22,7 +22,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'push' && 'webdock-vps' || inputs.target }}
+    environment: environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || vars.DEFAULT_DEPLOY_ENV || 'webdock-vps' }}
 
     steps:
       - name: Checkout

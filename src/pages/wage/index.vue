@@ -7,7 +7,7 @@
         <text>{{ month }}</text>
         <text class="arrow" :class="{ off: futureBlocked }" @click="shift(1)">›</text>
       </view>
-      <view class="hero card">
+      <view v-if="showWage" class="hero card">
         <text class="label">{{ t('wage.month') }}</text>
         <text class="big">¥ {{ money(total) }}</text>
         <view class="split">
@@ -15,7 +15,7 @@
           <view><text>{{ t('wage.time') }}</text><text>¥ {{ money(timed) }}</text></view>
         </view>
       </view>
-      <text class="note">{{ t('wage.note') }}</text>
+      <text v-if="showWage" class="note">{{ t('wage.note') }}</text>
       <view class="sec">
         <text class="h">{{ t('wage.section') }}</text>
         <text class="count">{{ t('wage.count', { n: lines.length }) }}</text>
@@ -29,7 +29,7 @@
         </view>
         <view class="line-side">
           <text class="tag" :class="row.mode === 'time' ? 'time' : 'piece'">{{ row.mode === 'time' ? t('record.time') : t('record.piece') }}</text>
-          <text class="pay">¥ {{ money(lineWage(row)) }}</text>
+          <text v-if="showWage" class="pay">¥ {{ money(lineWage(row)) }}</text>
         </view>
       </view>
     </view>
@@ -42,10 +42,10 @@ import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import NavBar from '@/components/NavBar.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { t } from '@/i18n'
-import { getReportRecords } from '@/api/mes/workReport'
+import { getReportRecords, getTimeRecords } from '@/api/mes/workReport'
 import { useUserStore } from '@/store/user'
 import { go } from '@/utils/nav'
-import { lineWage, listTimeReports, money, rememberRecord } from '@/utils/wage'
+import { isCountableWage, lineWage, listTimeReports, mapServerTimeReports, mergeTimeReports, money, rememberRecord, showWage } from '@/utils/wage'
 import type { WorkReportRecord } from '@/types/mes'
 
 const user = useUserStore()
@@ -57,7 +57,11 @@ const month = computed(() => {
   const d = cursor.value
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 })
-const lines = computed(() => rows.value.filter((row) => String(row.reportTime || '').startsWith(month.value)))
+const lines = computed(() =>
+  rows.value.filter(
+    (row) => String(row.reportTime || '').startsWith(month.value) && isCountableWage(row)
+  )
+)
 const piece = computed(() => lines.value.filter((row) => row.mode !== 'time').reduce((sum, row) => sum + lineWage(row), 0))
 const timed = computed(() => lines.value.filter((row) => row.mode === 'time').reduce((sum, row) => sum + lineWage(row), 0))
 const total = computed(() => piece.value + timed.value)
@@ -84,7 +88,15 @@ const load = async () => {
     const mine = !user.isLeader
     const res = await getReportRecords({ pageNo: 1, pageSize: 200, keyword: mine ? undefined : user.empNo }, { mine })
     const server = (res.data.list || []).map((row: WorkReportRecord) => ({ ...row, mode: row.mode || 'piece' }))
-    rows.value = [...local, ...server]
+    // 计时报工以服务端为准，本地仅作离线草稿兜底
+    let timeRows: any[] = []
+    try {
+      const raw = await getTimeRecords({ limit: 200 })
+      timeRows = mapServerTimeReports(raw)
+    } catch {
+      timeRows = []
+    }
+    rows.value = [...mergeTimeReports(timeRows, local as any), ...server]
   } catch {
     rows.value = local
   } finally {

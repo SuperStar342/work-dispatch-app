@@ -42,14 +42,14 @@
           <view class="custom" @click="fillMax">{{ t('report.custom') }}</view>
         </view>
         <text v-if="editing" class="note">{{ t('report.editHint', { no: editing.reportNo, n: fmtQty(originalQty), max: fmtQty(maxQty) }) }}</text>
-        <view class="fee">
+        <view v-if="showWage" class="fee">
           <view class="row"><text>{{ t('report.price') }}</text><text>{{ t('task.pricePiece', { n: money(price) }) }}</text></view>
           <view class="row est"><text>{{ t('report.estimate') }}</text><text class="estn">¥ {{ money(pieceWage) }}</text></view>
         </view>
       </view>
 
       <view v-else class="card block">
-        <view class="row"><text class="h">{{ t('report.hourPrice') }}</text><text>{{ t('task.priceHour', { n: money(price) }) }}</text></view>
+        <view v-if="showWage" class="row"><text class="h">{{ t('report.hourPrice') }}</text><text>{{ t('task.priceHour', { n: money(price) }) }}</text></view>
         <view class="switch">
           <text :class="{ on: !timingMode }" @click="timingMode = false">{{ t('report.manual') }}</text>
           <text :class="{ on: timingMode }" @click="timingMode = true">{{ t('report.timer') }}</text>
@@ -77,7 +77,7 @@
         <view v-else class="timer" @click="toggleTimer">{{ timing ? t('report.timing', { n: elapsedText }) : t('report.timer') }}</view>
         <text class="h">{{ t('report.hours') }}</text>
         <input class="qty" type="digit" :value="hours" @input="onHours" />
-        <view class="fee">
+        <view v-if="showWage" class="fee">
           <view class="row est"><text>{{ t('report.estimate') }}</text><text class="estn">¥ {{ money(timeWage) }}</text></view>
         </view>
         <text class="note">{{ editing ? t('report.editTimeHint') : t('report.timeNote') }}</text>
@@ -118,10 +118,10 @@ import { useUserStore } from '@/store/user'
 import { useReportContext } from '@/store/reportContext'
 import { composeMyTasks, toWorkers } from '@/services/taskCompose'
 import { getWtWorkers } from '@/api/mes/dispatch'
-import { submitDispatchReport, updateDispatchReport } from '@/api/mes/workReport'
+import { submitDispatchReport, submitTimeReport, updateDispatchReport, updateTimeReport } from '@/api/mes/workReport'
 import { fmtQty, nowText } from '@/utils/format'
 import { locale, t } from '@/i18n'
-import { isTimeWage, money, readRecord, saveTimeReport, taskPrice, touchRecent, updateTimeReport } from '@/utils/wage'
+import { isTimeWage, money, readRecord, saveTimeReport, showWage, taskPrice, touchRecent, updateTimeReport as updateTimeReportLocal } from '@/utils/wage'
 import { playReportSound, unlockReportSound } from '@/utils/sound'
 import type { MyTask, WorkReportRecord, WtWorker } from '@/types/mes'
 
@@ -252,61 +252,76 @@ const toggleTimer = () => {
   endAt.value = clockText(new Date())
 }
 
-const timePayload = () => {
-  if (!task.value) return null
-  return {
-    mode: 'time' as const,
-    wtNo: task.value.wtNo,
-    woNo: task.value.woNo,
-    moNo: task.value.moNo,
-    goodsId: task.value.goodsId,
-    goodsName: task.value.goodsName,
-    prcName: task.value.prcName,
-    prcCode: task.value.prcCode,
-    woBorSno: task.value.woBorSno,
-    empNo: empNo.value,
-    reportQty: hours.value,
-    hours: hours.value,
-    wage: timeWage.value,
-    price: price.value,
-    machiningUp: price.value,
-    remark: [startAt.value && endAt.value ? `${startAt.value}-${endAt.value}` : '', remark.value].filter(Boolean).join(' '),
-    reporter: empName.value,
-    start: startAt.value,
-    end: endAt.value,
-  }
-}
 const submitTime = async () => {
   unlockReportSound()
   if (!task.value || hours.value <= 0) {
     uni.showToast({ title: t('report.needHours'), icon: 'none' })
     return
   }
-  const payload = timePayload()
-  if (!payload) return
-  const row = editing.value
-    ? updateTimeReport(editing.value.id || editing.value.reportNo, payload)
-    : saveTimeReport({
-        ...payload,
-        id: `time-${Date.now()}`,
-        reportNo: `T${Date.now()}`,
-        reportTime: nowText(),
-      })
-  if (!row) {
-    uni.showToast({ title: t('record.timeMissing'), icon: 'none' })
-    return
+  submitting.value = true
+  const owtNo = task.value.owtNo || task.value.wtNo
+  const timeRemark = [startAt.value && endAt.value ? `${startAt.value}-${endAt.value}` : '', remark.value]
+    .filter(Boolean)
+    .join(' ')
+  try {
+    // 修改：改原单（服务端改单，不产生新单，避免重复计工）
+    // 新增：新建完工申报单，等待 PC 端审核
+    const editRow = editing.value
+    const res = editRow?.reportNo
+      ? await updateTimeReport(editRow.reportNo, {
+          hours: Number(hours.value),
+          reportTime: nowText(),
+          remark: timeRemark,
+        })
+      : await submitTimeReport({
+          owtNo,
+          sNo: task.value.sNo || 1,
+          hours: Number(hours.value),
+          reportTime: nowText(),
+          remark: timeRemark,
+        })
+    const row = {
+      id: `time-${res.fnNo}`,
+      reportNo: res.fnNo,
+      wtNo: owtNo,
+      owtNo,
+      goodsName: task.value.goodsName,
+      prcName: task.value.prcName,
+      prcCode: task.value.prcCode,
+      empNo: empNo.value,
+      reportQty: Number(res.workTime ?? hours.value),
+      hours: Number(res.workTime ?? hours.value),
+      wage: Number(res.wageAmt ?? timeWage.value),
+      price: price.value,
+      machiningUp: price.value,
+      remark: remark.value,
+      reporter: empName.value,
+      reportTime: nowText(),
+      cFlag: '0',
+      auditStatus: '未审核',
+      mode: 'time' as const,
+      start: startAt.value,
+      end: endAt.value,
+    }
+    // 服务端已落库，本地仅作缓存（记录页/消息中心以服务端为准）
+    if (editRow) updateTimeReportLocal(editRow.id || editRow.reportNo, row)
+    else saveTimeReport(row)
+    ctx.setLastResult({
+      reportNo: row.reportNo,
+      reportQty: row.reportQty,
+      wage: row.wage,
+      wtNo: owtNo,
+      prcName: task.value.prcName,
+      goodsName: task.value.goodsName,
+      edited: Boolean(editRow),
+    })
+    playReportSound(Boolean(editRow))
+    uni.redirectTo({ url: '/pages/result/index' })
+  } catch (e: any) {
+    uni.showToast({ title: e?.message || t('report.failed'), icon: 'none' })
+  } finally {
+    submitting.value = false
   }
-  ctx.setLastResult({
-    reportNo: row.reportNo,
-    reportQty: hours.value,
-    wage: row.wage,
-    wtNo: task.value.wtNo,
-    prcName: task.value.prcName,
-    goodsName: task.value.goodsName,
-    edited: Boolean(editing.value),
-  })
-  playReportSound(Boolean(editing.value))
-  uni.redirectTo({ url: '/pages/result/index' })
 }
 
 const submit = async () => {

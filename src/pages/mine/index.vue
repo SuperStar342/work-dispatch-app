@@ -36,7 +36,7 @@
         </view>
         <text class="arrow">›</text>
       </view>
-      <view class="item" @click="go('/pages/wage/index')">
+      <view class="item" v-if="showWage" @click="go('/pages/wage/index')">
         <view class="item-l">
           <wd-icon name="wallet" size="18px" color="#f59e0b" />
           <text>{{ t('mine.wage') }}</text>
@@ -84,6 +84,7 @@ import { useUserStore } from '@/store/user'
 import { go, goTab } from '@/utils/nav'
 import { locale, t } from '@/i18n'
 import { playReportSound, previewSound, setSoundEnabled, setSoundStyle, soundEnabled, soundStyle, type SoundStyle } from '@/utils/sound'
+import { showWage } from '@/utils/wage'
 
 const statusBar = uni.getSystemInfoSync().statusBarHeight || 20
 const user = useUserStore()

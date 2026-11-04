@@ -1,6 +1,6 @@
 import type { WorkReportRecord } from '@/types/mes'
 import { num } from '@/utils/format'
-import { lineWage } from '@/utils/wage'
+import { isCountableWage, lineWage } from '@/utils/wage'
 
 export type StatGroup = 'order' | 'process' | 'date'
 
@@ -68,6 +68,7 @@ export const trendPoints = (rows: WorkReportRecord[], start: string, end: string
   const daily = span <= 16 || days.size <= 12
   const map = new Map<string, { label: string; piece: number; time: number }>()
   rows.forEach((row) => {
+    if (!isCountableWage(row)) return
     const day = dayOf(row)
     const label = daily ? day.slice(5) : weekLabel(day, start)
     const cur = map.get(label) || { label, piece: 0, time: 0 }
@@ -82,6 +83,7 @@ export const trendPoints = (rows: WorkReportRecord[], start: string, end: string
 export const groupRows = (rows: WorkReportRecord[], by: StatGroup): StatBucket[] => {
   const map = new Map<string, StatBucket>()
   rows.forEach((row) => {
+    if (!isCountableWage(row)) return
     const day = dayOf(row)
     const key = by === 'order' ? row.wtNo || '-' : by === 'process' ? row.prcName || row.prcCode || '-' : day
     const label = by === 'order' ? row.goodsName || row.wtNo || '-' : by === 'process' ? row.prcName || row.prcCode || '-' : day.slice(5)

@@ -9,7 +9,7 @@
         <view v-if="result?.workerFnQty != null"><text>{{ t('result.sum') }}</text><text class="n">{{ fmtQty(result?.workerFnQty) }}</text></view>
         <view v-if="result?.workerPendingQty != null"><text>{{ t('result.left') }}</text><text class="n">{{ fmtQty(result?.workerPendingQty) }}</text></view>
       </view>
-      <text v-if="result?.wage != null" class="meta">¥ {{ Number(result.wage).toFixed(2) }}</text>
+      <text v-if="showWage && result?.wage != null" class="meta">¥ {{ Number(result.wage).toFixed(2) }}</text>
       <text class="meta">{{ result?.wtNo }} {{ result?.prcName }}</text>
     </view>
     <view class="btn-primary" @click="goHome">{{ t('result.home') }}</view>
@@ -23,6 +23,7 @@ import { useReportContext } from '@/store/reportContext'
 import { fmtQty } from '@/utils/format'
 import { goTab } from '@/utils/nav'
 import { t } from '@/i18n'
+import { showWage } from '@/utils/wage'
 
 const ctx = useReportContext()
 const result = computed(() => ctx.lastResult)

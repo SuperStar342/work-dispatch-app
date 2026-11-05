@@ -25,6 +25,25 @@ export async function loginByPassword(username: string, password: string) {
   return res
 }
 
+export async function loginByDingTalk(code: string) {
+  const res: any = await request({
+    url: '/blade-auth/oauth/token',
+    method: 'POST',
+    isToken: false,
+    timeout: 30000,
+    params: {
+      tenantId: appConfig.tenantId,
+      code,
+      grant_type: 'dingtalk',
+      scope: 'all',
+      type: 'account',
+    },
+  })
+  if (res?.error_description) throw new Error(res.error_description)
+  if (res?.error) throw new Error(res.error_description || res.error || t('login.dingFailed'))
+  return res
+}
+
 export async function getUserInfo() {
   try {
     const res: any = await request({ url: '/blade-system/user/info', method: 'GET', silentError: true })

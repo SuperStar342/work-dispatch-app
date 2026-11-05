@@ -1,7 +1,7 @@
 {
-    "name" : "员工报工",
+    "name" : "智造报工",
     "appid" : "__UNI__WDREPORT",
-    "description" : "沙发工厂移动端员工报工",
+    "description" : "沙发工厂移动端智造报工",
     "versionName" : "1.0.0",
     "versionCode" : "100",
     "transformPx" : false,
@@ -71,7 +71,7 @@
 	"h5": {
 	  "router": {
 	    "mode": "hash",
-	    "base": "/work/"
+	    "base": "/"
 	  }
 	},
     "vueVersion" : "3"

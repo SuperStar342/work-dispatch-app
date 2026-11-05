@@ -3,7 +3,7 @@
     <view class="status" :style="{ height: statusBar + 'px' }" />
     <view class="head">
       <text class="title">{{ picking ? t('task.pickTitle') : t('task.title') }}</text>
-      <text class="sub">{{ user.isLeader && !user.isOwnScope ? t('task.leaderSub') : t('task.workerSub') }}</text>
+      <text class="sub">{{ user.isLeader ? t('task.leaderSub') : t('task.workerSub') }}</text>
     </view>
     <view class="search card">
       <input :key="'kw-' + locale" v-model="keyword" :placeholder="t('task.searchPh')" confirm-type="search" @confirm="reload" />
@@ -75,8 +75,7 @@ const shown = computed(() => {
   return rows
 })
 
-const reload = () =>
-  ctx.load({ force: true, pageSize: 20, empNo: user.empNo, isLeader: user.isLeader && !user.isOwnScope })
+const reload = () => ctx.load({ force: true, pageSize: 20, empNo: user.empNo, isLeader: user.isLeader })
 const openTask = (task: MyTask) => {
   touchRecent(task.id)
   const reportMode = isTimeWage(task.pWageType) ? 'time' : 'piece'

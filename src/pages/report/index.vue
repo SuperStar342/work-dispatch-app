@@ -26,7 +26,7 @@
         </view>
         <ReportProgress labeled :done="task.fnQty" :total="task.planQty || task.wtQty" />
         <EmpSwitcher
-          :visible="user.isLeader && !user.isOwnScope"
+          :visible="user.isLeader"
           :workers="workers"
           :current-no="empNo"
           :current-name="empName"
@@ -36,7 +36,7 @@
 
       <view v-if="mode === 'piece'" class="card block">
         <text class="h">{{ t('report.qty') }}</text>
-        <input class="qty" type="text" inputmode="numeric" pattern="[0-9]*" :value="reportQty" @input="onQty" />
+        <input class="qty" type="number" :value="reportQty" @input="onQty" />
         <view class="chips">
           <QtyChips :chips="[10, 20, 50]" @add="addQty" />
           <view class="custom" @click="fillMax">{{ t('report.custom') }}</view>
@@ -123,7 +123,6 @@ import { fmtQty, nowText } from '@/utils/format'
 import { locale, t } from '@/i18n'
 import { isTimeWage, money, readRecord, saveTimeReport, showWage, taskPrice, touchRecent, updateTimeReport as updateTimeReportLocal } from '@/utils/wage'
 import { playReportSound, unlockReportSound } from '@/utils/sound'
-import { normalizeWholeQuantity, syncWholeQuantityInput } from '@/utils/quantity'
 import type { MyTask, WorkReportRecord, WtWorker } from '@/types/mes'
 
 const user = useUserStore()
@@ -178,7 +177,7 @@ const applyTask = (t: MyTask) => {
   task.value = t
   empNo.value = t.empNo
   empName.value = t.empName
-  reportQty.value = normalizeWholeQuantity(t.pendingQty)
+  reportQty.value = t.pendingQty
   defectQty.value = 0
 }
 
@@ -199,20 +198,19 @@ const onEmp = (w: WtWorker) => {
       fnQty: w.fnQty,
       pendingQty: w.pendingQty,
     }
-    reportQty.value = normalizeWholeQuantity(w.pendingQty)
+    reportQty.value = w.pendingQty
   }
 }
 
 const onQty = (e: any) => {
-  const value = normalizeWholeQuantity(e.detail.value, maxQty.value)
-  reportQty.value = value
-  return syncWholeQuantityInput(e, value)
+  reportQty.value = Math.max(0, Number(e.detail.value || 0))
 }
 const fillMax = () => {
-  if (task.value) reportQty.value = normalizeWholeQuantity(maxQty.value)
+  if (task.value) reportQty.value = maxQty.value
 }
 const addQty = (n: number) => {
-  reportQty.value = normalizeWholeQuantity(reportQty.value + n, task.value ? maxQty.value : undefined)
+  const next = reportQty.value + n
+  reportQty.value = task.value ? Math.min(maxQty.value, next) : next
 }
 const onHours = (e: any) => {
   hours.value = Math.max(0, Number(e.detail.value || 0))
@@ -282,7 +280,6 @@ const submitTime = async () => {
           reportTime: nowText(),
           remark: timeRemark,
         })
-    ctx.invalidateTasks()
     const row = {
       id: `time-${res.fnNo}`,
       reportNo: res.fnNo,
@@ -358,9 +355,8 @@ const submit = async () => {
       reportMethod: '移动报工',
     }
     const data = editing.value
-      ? await updateDispatchReport(payload, { mine: user.isOwnScope })
-      : await submitDispatchReport(payload, { mine: user.isOwnScope })
-    ctx.invalidateTasks()
+      ? await updateDispatchReport(payload, { mine: !user.isLeader })
+      : await submitDispatchReport(payload, { mine: !user.isLeader })
     ctx.setLastResult({
       ...data,
       wage: pieceWage.value,
@@ -392,7 +388,7 @@ onLoad(async (q) => {
         pageSize: 30,
         wtNo: String(q.wtNo),
         empNo: user.empNo,
-        isLeader: user.isLeader && !user.isOwnScope,
+        isLeader: user.isLeader,
       })
       found =
         res.list.find((t) => t.id === id) ||
@@ -413,14 +409,14 @@ onLoad(async (q) => {
           if (editing.value.start) startAt.value = editing.value.start
           if (editing.value.end) endAt.value = editing.value.end
         } else {
-          reportQty.value = normalizeWholeQuantity(editing.value.reportQty, maxQty.value)
-          defectQty.value = normalizeWholeQuantity(editing.value.defectQty, reportQty.value)
+          reportQty.value = Number(editing.value.reportQty || 0)
+          defectQty.value = Number(editing.value.defectQty || 0)
           defectReason.value = editing.value.defectReason || ''
         }
       } else if (mode.value === 'time') {
         applyRange()
       }
-      if (user.isLeader && !user.isOwnScope) {
+      if (user.isLeader) {
         const list = await getWtWorkers({
           wtNo: found.wtNo,
           woNo: found.woNo,

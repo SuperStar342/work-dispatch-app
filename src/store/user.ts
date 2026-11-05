@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { loginByPassword, loginByDingTalk, getUserInfo, logoutApi } from '@/api/auth'
+import { loginByPassword, getUserInfo, logoutApi } from '@/api/auth'
 import { appConfig, STORAGE_KEYS } from '@/utils/config'
 import { parseJwt, setToken, setRefreshToken, clearAuth, getToken } from '@/utils/auth'
 import { t } from '@/i18n'
@@ -26,12 +26,9 @@ export const useUserStore = defineStore('user', {
     empNo: '',
     empName: '',
     avatar: '',
-    loginSource: 'password' as 'password' | 'dingtalk',
   }),
   getters: {
     isLeader: (s) => isLeaderRole(s.roles),
-    /** 钉钉免登始终使用员工本人数据范围，避免班组长角色切换到代报/公共列表。 */
-    isOwnScope: (s) => s.loginSource === 'dingtalk' || !isLeaderRole(s.roles),
     loginName: (s) => s.userName || s.account || t('common.employee'),
     displayName: (s) => s.empName || s.userName || s.account || t('common.employee'),
   },
@@ -53,49 +50,30 @@ export const useUserStore = defineStore('user', {
         this.userName = cached.userName || ''
         this.roles = cached.roles || []
         this.avatar = cached.avatar || ''
-        this.loginSource = cached.loginSource === 'dingtalk' ? 'dingtalk' : 'password'
       }
       if (this.account) this.applyOwnedEmp()
     },
     async login(username: string, password: string) {
       resetAuditNotices()
       const data = await loginByPassword(username, password)
-      await this.applyLoginResult(data, username, 'password')
-    },
-    async loginWithDingTalk(code: string) {
-      resetAuditNotices()
-      // 防止设备上残留的 Blade 密码登录刷新令牌混入钉钉员工会话。
-      clearAuth()
-      this.token = ''
-      const data = await loginByDingTalk(code)
-      await this.applyLoginResult(data, '', 'dingtalk')
-    },
-    async applyLoginResult(data: any, fallbackAccount = '', loginSource: 'password' | 'dingtalk' = 'password') {
       const token = data.access_token
       if (!token) throw new Error(t('login.noToken'))
       setToken(token)
-      if (loginSource === 'password' && data.refresh_token) setRefreshToken(data.refresh_token)
-      if (loginSource === 'dingtalk') uni.removeStorageSync(STORAGE_KEYS.refresh)
+      if (data.refresh_token) setRefreshToken(data.refresh_token)
       this.token = token
-      this.loginSource = loginSource
       const jwt = parseJwt(token)
-      const dingDetail = loginSource === 'dingtalk' && jwt?.detail && typeof jwt.detail === 'object' ? jwt.detail : {}
-      const dingEmployeeNo = String(dingDetail.employee_no || '')
-      const dingEmployeeName = String(dingDetail.employee_name || '')
-      this.account = dingEmployeeNo || jwt.account || jwt.user_name || fallbackAccount
-      this.userName = dingEmployeeName || jwt.nick_name || jwt.real_name || jwt.user_name || this.account
+      this.account = jwt.account || jwt.user_name || username
+      this.userName = jwt.nick_name || jwt.real_name || jwt.user_name || this.account
       this.roles = splitRoles(jwt.role_name)
-      if (loginSource !== 'dingtalk') {
-        try {
-          const info: any = await getUserInfo()
-          const u = info?.userInfo || info?.sysUser || info || {}
-          this.account = u.account || this.account
-          this.userName = u.realName || u.name || u.nickName || this.userName
-          this.roles = splitRoles(u.roleName || info?.roles || this.roles)
-          this.avatar = u.avatar || ''
-        } catch {
-          /* jwt fallback */
-        }
+      try {
+        const info: any = await getUserInfo()
+        const u = info?.userInfo || info?.sysUser || info || {}
+        this.account = u.account || this.account
+        this.userName = u.realName || u.name || u.nickName || this.userName
+        this.roles = splitRoles(u.roleName || info?.roles || this.roles)
+        this.avatar = u.avatar || ''
+      } catch {
+        /* jwt fallback */
       }
       this.applyOwnedEmp()
       this.persist()
@@ -111,7 +89,6 @@ export const useUserStore = defineStore('user', {
         userName: this.userName,
         roles: this.roles,
         avatar: this.avatar,
-        loginSource: this.loginSource,
       })
       uni.setStorageSync(STORAGE_KEYS.empNo, this.empNo)
       uni.setStorageSync(STORAGE_KEYS.empName, this.empName)
@@ -128,7 +105,6 @@ export const useUserStore = defineStore('user', {
       this.empNo = ''
       this.empName = ''
       this.avatar = ''
-      this.loginSource = 'password'
       uni.removeStorageSync(STORAGE_KEYS.user)
       uni.removeStorageSync(STORAGE_KEYS.empNo)
       uni.removeStorageSync(STORAGE_KEYS.empName)

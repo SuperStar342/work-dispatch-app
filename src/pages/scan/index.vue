@@ -64,7 +64,6 @@ import { locale, t } from '@/i18n'
 const code = ref('')
 const user = useUserStore()
 const ctx = useReportContext()
-const canUseTeamScope = () => user.isLeader && !user.isOwnScope
 
 const openFirst = (list: any[], prcCode?: string) => {
   const hit = prcCode ? list.find((t) => t.prcCode === prcCode) : list[0]
@@ -83,25 +82,15 @@ const lookup = async () => {
   }
   uni.showLoading({ title: t('scan.locating') })
   try {
-    const byWt = await composeMyTasks({
-      pageNo: 1,
-      pageSize: 20,
-      wtNo: kw,
-      empNo: user.empNo,
-      isLeader: canUseTeamScope(),
-    })
+    const byWt = await composeMyTasks({ pageNo: 1, pageSize: 20, wtNo: kw, empNo: user.empNo, isLeader: user.isLeader })
     if (byWt.list.length) {
       openFirst(byWt.list)
-      return
-    }
-    if (!canUseTeamScope()) {
-      openFirst(ctx.tasks.filter((t) => t.wtNo.includes(kw) || t.woNo.includes(kw) || t.prcCode === kw))
       return
     }
     const page = await getWtList({ pageNo: 1, pageSize: 20, moNo: kw, cFlag: '1', ifClose: '0' })
     const first = page.data.list?.[0]
     if (first?.wtNo) {
-      const res = await composeMyTasks({ pageNo: 1, pageSize: 20, wtNo: first.wtNo, empNo: user.empNo, isLeader: true })
+      const res = await composeMyTasks({ pageNo: 1, pageSize: 20, wtNo: first.wtNo, empNo: user.empNo, isLeader: user.isLeader })
       openFirst(res.list)
       return
     }
@@ -130,7 +119,7 @@ const byProcess = (prcCode: string) => {
 }
 
 onShow(() => {
-  if (user.token) ctx.load({ empNo: user.empNo, isLeader: canUseTeamScope() })
+  if (user.token) ctx.load({ empNo: user.empNo, isLeader: user.isLeader })
 })
 </script>
 

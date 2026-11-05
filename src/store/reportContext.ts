@@ -63,8 +63,5 @@ export const useReportContext = defineStore('reportContext', {
     setLastResult(payload: Record<string, any>) {
       this.lastResult = payload
     },
-    invalidateTasks() {
-      this.loadedAt = 0
-    },
   },
 })

@@ -48,9 +48,14 @@ const decisionMeta = (row: WorkReportRecord) => {
 const load = async () => {
   loading.value = true
   try {
-    const scoped = user.isOwnScope
+    const scoped = !user.isLeader
     const rec = await getReportRecords({ pageNo: 1, pageSize: 50 }, { mine: scoped })
     let rows = rec.data.list || []
+    const emp = String(user.empNo || user.account || '')
+    if (!rows.length && scoped && !/^\d{4,}$/.test(emp)) {
+      const team = await getReportRecords({ pageNo: 1, pageSize: 50 })
+      rows = team.data.list || []
+    }
     // 计时报工审核通过也进消息中心
     let timeRows: any[] = []
     try {

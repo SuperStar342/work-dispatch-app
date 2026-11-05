@@ -17,11 +17,4 @@ interface ImportMetaEnv {
   readonly VITE_SM2_PUBLIC_KEY: string
   readonly VITE_LEADER_ROLE_ALIASES: string
   readonly VITE_LOGIN_GRANT_TYPE: string
-  readonly VITE_DINGTALK_CORP_ID: string
-  readonly VITE_DINGTALK_CLIENT_ID: string
-  readonly VITE_DINGTALK_AUTO_LOGIN: string
-}
-
-interface Window {
-  dd?: any
 }

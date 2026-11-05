@@ -44,7 +44,7 @@
           <text class="code">{{ row.wtNo }}</text>
           <text class="d">{{ t('batch.pending', { n: fmtQty(row.pendingQty) }) }}</text>
         </view>
-        <input class="q" type="number" :value="qtyMap[row.id]" @input="(e: any) => setQty(row.id, e.detail.value, row.pendingQty)" />
+        <input class="q" type="text" inputmode="numeric" pattern="[0-9]*" :value="qtyMap[row.id]" @input="(e: any) => setQty(row.id, e, row.pendingQty)" />
       </view>
     </view>
 
@@ -70,6 +70,7 @@ import { fmtQty, nowText } from '@/utils/format'
 import { back } from '@/utils/nav'
 import { t } from '@/i18n'
 import { playReportSound, unlockReportSound } from '@/utils/sound'
+import { normalizeWholeQuantity, syncWholeQuantityInput } from '@/utils/quantity'
 
 const user = useUserStore()
 const ctx = useReportContext()
@@ -103,8 +104,9 @@ const toggle = (id: string) => {
 const toggleAll = () => {
   selected.value = selected.value.length === candidates.value.length ? [] : candidates.value.map((t) => t.id)
 }
-const setQty = (id: string, v: any, max: number) => {
-  qtyMap[id] = Math.min(max, Math.max(0, Number(v || 0)))
+const setQty = (id: string, e: any, max: number) => {
+  qtyMap[id] = normalizeWholeQuantity(e.detail.value, max)
+  return syncWholeQuantityInput(e, qtyMap[id])
 }
 
 const next = async () => {
@@ -116,7 +118,7 @@ const next = async () => {
   if (step.value === 2) {
     if (!selected.value.length) return uni.showToast({ title: t('batch.needOrder'), icon: 'none' })
     selectedTasks.value.forEach((t) => {
-      qtyMap[t.id] = t.pendingQty
+      qtyMap[t.id] = normalizeWholeQuantity(t.pendingQty)
     })
     step.value = 3
     return
@@ -146,7 +148,8 @@ const next = async () => {
   submitting.value = true
   unlockReportSound()
   try {
-    const data = await submitDispatchReportBatch(payloads, { mine: !user.isLeader })
+    const data = await submitDispatchReportBatch(payloads, { mine: user.isOwnScope })
+    if (data.successCount > 0) ctx.invalidateTasks()
     ctx.setLastResult({
       reportNo: (data.reportNos || []).join('、'),
       reportQty: payloads.reduce((s, p) => s + p.reportQty, 0),
@@ -165,7 +168,7 @@ const next = async () => {
 }
 
 onShow(() => {
-  if (user.token) ctx.load({ empNo: user.empNo, isLeader: user.isLeader, pageSize: 20 })
+  if (user.token) ctx.load({ empNo: user.empNo, isLeader: user.isLeader && !user.isOwnScope, pageSize: 20 })
 })
 </script>
 

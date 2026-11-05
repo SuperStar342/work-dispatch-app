@@ -198,19 +198,7 @@ jobs:
           New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 
           try {
-            $keyContent = $env:DEPLOY_SSH_KEY.Trim()
-            if ($keyContent -match '\\n') {
-              $keyContent = $keyContent -replace '\\r', '' -replace '\\n', "`n"
-            }
-            elseif ($keyContent -notmatch '^-----BEGIN ') {
-              try {
-                $keyContent = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($keyContent))
-              }
-              catch {
-                throw 'DEPLOY_SSH_KEY 既不是 PEM/OpenSSH 私钥，也不是有效的 Base64 私钥'
-              }
-            }
-            $keyContent = $keyContent -replace "`r", ''
+            $keyContent = $env:DEPLOY_SSH_KEY.Trim() -replace '\\r', '' -replace '\\n', "`n" -replace "`r", ''
             if (-not $keyContent.EndsWith("`n")) {
               $keyContent += "`n"
             }
@@ -223,11 +211,6 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw '设置 SSH 私钥 ACL 失败' }
             & icacls.exe $keyPath /grant:r "${currentUser}:(R)" | Out-Null
             if ($LASTEXITCODE -ne 0) { throw '授权 SSH 私钥读取权限失败' }
-
-            & ssh-keygen.exe -y -f $keyPath 2>$null | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-              throw 'DEPLOY_SSH_KEY 无法解析为有效私钥，请重新保存对应 deploy 公钥的私钥内容'
-            }
 
             $remoteScript = @'
           set -euo pipefail

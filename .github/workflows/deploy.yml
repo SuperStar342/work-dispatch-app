@@ -109,9 +109,11 @@ jobs:
       - name: Check deployment environment
         shell: powershell
         env:
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          # 正式环境曾把外网访问地址写进 SSH 主机，但 Runner 与 known_hosts
+          # 都使用内网服务器。保留环境变量优先级，同时兼容这份旧配置。
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
@@ -159,9 +161,9 @@ jobs:
       - name: Upload and deploy
         shell: powershell
         env:
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |

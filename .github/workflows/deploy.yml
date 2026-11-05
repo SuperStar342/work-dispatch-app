@@ -195,21 +195,21 @@ jobs:
 
           if [ -d "$deploy_path" ]; then
             mkdir -p "$backup"
-            rsync -a --no-owner --no-group "$deploy_path/" "$backup/"
+            rsync -r "$deploy_path/" "$backup/"
             has_backup=true
           fi
 
           mkdir -p "$deploy_path"
-          if ! rsync -a --no-owner --no-group --delete "$directory/" "$deploy_path/"; then
+          if ! rsync -r --delete "$directory/" "$deploy_path/"; then
             if [ "$has_backup" = true ]; then
-              rsync -a --no-owner --no-group --delete "$backup/" "$deploy_path/"
+              rsync -r --delete "$backup/" "$deploy_path/"
             fi
             exit 1
           fi
 
           if ! test -s "$deploy_path/index.html"; then
             if [ "$has_backup" = true ]; then
-              rsync -a --no-owner --no-group --delete "$backup/" "$deploy_path/"
+              rsync -r --delete "$backup/" "$deploy_path/"
             fi
             exit 1
           fi

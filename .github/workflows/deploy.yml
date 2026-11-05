@@ -112,6 +112,8 @@ jobs:
           # 正式环境曾把外网访问地址写进 SSH 主机，但 Runner 与 known_hosts
           # 都使用内网服务器。保留环境变量优先级，同时兼容这份旧配置。
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || vars.DEPLOY_HOST }}
+          DEPLOY_HOST_FALLBACK: ${{ vars.DEPLOY_HOST == '77.46.140.135' && vars.DEPLOY_HOST || '' }}
+          DEPLOY_HOST_KEY_ALIAS: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || '' }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -151,17 +153,32 @@ jobs:
             }
           }
 
-          $connection = Test-NetConnection -ComputerName $env:DEPLOY_HOST -Port 22 -WarningAction SilentlyContinue
-          if (-not $connection.TcpTestSucceeded) {
-            throw "内网 Runner 无法连接 $($env:DEPLOY_HOST):22，请检查 Runner 所在网络、SSH 服务和防火墙"
+          $candidateHosts = @($env:DEPLOY_HOST)
+          if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_HOST_FALLBACK) -and $env:DEPLOY_HOST_FALLBACK -ne $env:DEPLOY_HOST) {
+            $candidateHosts += $env:DEPLOY_HOST_FALLBACK
           }
 
-          Write-Host "SSH connectivity check passed: $($env:DEPLOY_HOST):22"
+          $resolvedHost = $null
+          foreach ($candidateHost in $candidateHosts) {
+            $connection = Test-NetConnection -ComputerName $candidateHost -Port 22 -WarningAction SilentlyContinue
+            if ($connection.TcpTestSucceeded) {
+              $resolvedHost = $candidateHost
+              break
+            }
+            Write-Warning "SSH endpoint unavailable: ${candidateHost}:22"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($resolvedHost)) {
+            throw "Runner 无法连接任一 SSH 地址: $($candidateHosts -join ', ')"
+          }
+
+          "DEPLOY_HOST=$resolvedHost" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DEPLOY_HOST_KEY_ALIAS=$($env:DEPLOY_HOST_KEY_ALIAS)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "SSH connectivity check passed: ${resolvedHost}:22"
 
       - name: Upload and deploy
         shell: powershell
         env:
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -286,6 +303,9 @@ jobs:
               '-o', 'BatchMode=yes',
               '-o', 'ConnectTimeout=15'
             )
+            if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_HOST_KEY_ALIAS)) {
+              $sshOptions += @('-o', "HostKeyAlias=$($env:DEPLOY_HOST_KEY_ALIAS)")
+            }
 
             Invoke-NativeCommand -Description '上传部署产物' -Command {
               & scp.exe @sshOptions $archivePath $scriptPath "${remote}:~/"

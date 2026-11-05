@@ -119,7 +119,7 @@
   ],
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "智造报工",
+    "navigationBarTitleText": "员工报工",
     "navigationBarBackgroundColor": "#F4F7FB",
     "backgroundColor": "#F4F7FB"
   }

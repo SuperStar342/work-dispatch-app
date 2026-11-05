@@ -209,7 +209,7 @@ const load = async () => {
   loading.value = true
   const local = listTimeReports()
   try {
-    const mine = user.isOwnScope
+    const mine = !user.isLeader
     const res = await getReportRecords({ pageNo: 1, pageSize: 200, keyword: mine ? undefined : user.empNo }, { mine })
     const server = (res.data.list || []).map((row: WorkReportRecord) => ({ ...row, mode: row.mode || 'piece' }))
     const seen = new Set(server.map((row: WorkReportRecord) => row.reportNo).filter(Boolean))

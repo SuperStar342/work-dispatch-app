@@ -85,7 +85,7 @@ const load = async () => {
   loading.value = true
   const local = listTimeReports()
   try {
-    const mine = user.isOwnScope
+    const mine = !user.isLeader
     const res = await getReportRecords({ pageNo: 1, pageSize: 200, keyword: mine ? undefined : user.empNo }, { mine })
     const server = (res.data.list || []).map((row: WorkReportRecord) => ({ ...row, mode: row.mode || 'piece' }))
     // 计时报工以服务端为准，本地仅作离线草稿兜底

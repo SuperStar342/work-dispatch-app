@@ -5,8 +5,8 @@ import http from 'node:http'
 const keepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 64 })
 
 export default defineConfig({
-  base: '/',
-  plugins: [uni()],
+    base: '/work/',
+    plugins: [uni()],
   server: {
     host: '0.0.0.0',
     port: 5174,

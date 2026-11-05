@@ -1,16 +1,12 @@
 import { request } from '@/utils/request'
 import { t } from '@/i18n'
 import { adaptPage, getEnvelope, unwrap } from '@/utils/bladeAdapter'
-import { isWholeQuantity } from '@/utils/quantity'
 import type { DispatchReportBatchResult, DispatchReportPayload, DispatchReportResult } from '@/types/mes'
 
 export function validateDispatchReport(payload: DispatchReportPayload) {
   if (!payload.wtNo) return t('val.wt')
   if (!payload.empNo) return t('val.emp')
   if (payload.reportQty <= 0) return t('val.qty')
-  if (![payload.reportQty, payload.passQty, payload.defectQty, payload.reworkQty].every(isWholeQuantity)) {
-    return t('val.integer')
-  }
   if (payload.reportQty > payload.pendingQty) return t('val.over', { n: payload.pendingQty })
   const sum = payload.passQty + payload.defectQty + payload.reworkQty
   if (sum !== payload.reportQty) return t('val.sum')

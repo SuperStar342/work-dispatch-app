@@ -1,6 +1,6 @@
-import { appConfig, STORAGE_KEYS } from './config'
+import { appConfig } from './config'
 import { t } from '@/i18n'
-import { encodeBasic, getToken, getRefreshToken, setToken, setRefreshToken, clearAuth, parseJwt } from './auth'
+import { encodeBasic, getToken, getRefreshToken, setToken, setRefreshToken, clearAuth } from './auth'
 import { getEnvelope } from './bladeAdapter'
 
 type RequestOptions = {
@@ -18,11 +18,6 @@ type RequestOptions = {
 
 let redirecting = false
 let refreshPromise: Promise<boolean> | null = null
-
-const isDingTalkSession = () => {
-  const detail = parseJwt(getToken())?.detail
-  return detail && typeof detail === 'object' && detail.login_source === 'dingtalk'
-}
 
 const qs = (params?: Record<string, any>) => {
   if (!params) return ''
@@ -86,16 +81,8 @@ export async function request<T = any>(options: RequestOptions): Promise<T> {
   const body: any = res.data
 
   if (isToken && (status === 401 || /认证信息已过期|令牌已失效|令牌已过期|缺失令牌/.test(String(body?.msg || body?.error_description || '')))) {
-    // 钉钉员工是独立的短期会话，不对应 Blade 用户表，不能走 refresh_token
-    // 加载失败或令牌过期时回到登录页重新换取钉钉一次性授权码。
-    const dingTalkSession = Boolean(isDingTalkSession())
-    const refreshed = options._authRetried || dingTalkSession ? false : await tryRefresh()
+    const refreshed = options._authRetried ? false : await tryRefresh()
     if (refreshed) return request({ ...options, _authRetried: true })
-    if (dingTalkSession) {
-      // The login page consumes this marker and waits for an explicit retry.
-      // This guarantees that a backend validation failure cannot cause SSO -> 401 -> SSO forever.
-      uni.setStorageSync(STORAGE_KEYS.dingAutoLoginBlocked, Date.now())
-    }
     toLogin(t('err.expired'))
     throw new Error(t('err.expired'))
   }

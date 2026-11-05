@@ -139,7 +139,7 @@ const logout = () => {
 
 <style lang="scss" scoped>
 .page {
-  padding: 24rpx 24rpx calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 40rpx);
+  padding: 24rpx;
 }
 .profile {
   display: flex;
@@ -259,6 +259,5 @@ const logout = () => {
 }
 .logout {
   margin-top: 40rpx;
-  margin-bottom: 24rpx;
 }
 </style>

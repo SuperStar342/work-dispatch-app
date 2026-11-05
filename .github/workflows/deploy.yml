@@ -41,30 +41,55 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Build H5
+      - name: Build root H5
         env:
           VITE_APP_BASE_URL: /api
         run: pnpm run build:h5
 
-      - name: Collect files
+      - name: Collect root files
         shell: bash
         run: |
           set -euo pipefail
-          mkdir release
+          mkdir release-root
           for dir in dist/build/h5 dist/build/web \
             unpackage/dist/build/web unpackage/dist/build/h5; do
             if [ -f "$dir/index.html" ]; then
-              cp -a "$dir/." release/
+              cp -a "$dir/." release-root/
               break
             fi
           done
-          test -s release/index.html
+          test -s release-root/index.html
+          grep -qE '(src|href)="/assets/' release-root/index.html
+          ! grep -qE '(src|href)="/work/assets/' release-root/index.html
+
+      - name: Build work subpath H5
+        env:
+          VITE_APP_BASE_URL: /api
+        run: pnpm run build:h5:work
+
+      - name: Collect work subpath files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-work
+          for dir in dist/build/h5 dist/build/web \
+            unpackage/dist/build/web unpackage/dist/build/h5; do
+            if [ -f "$dir/index.html" ]; then
+              cp -a "$dir/." release-work/
+              break
+            fi
+          done
+          test -s release-work/index.html
+          grep -qE '(src|href)="/work/assets/' release-work/index.html
+          ! grep -qE '(src|href)="/assets/' release-work/index.html
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: h5-${{ github.run_id }}
-          path: release/
+          path: |
+            release-root/
+            release-work/
           if-no-files-found: error
           retention-days: 3
 
@@ -103,8 +128,19 @@ jobs:
             throw "DEPLOY_PATH 非法: $($env:DEPLOY_PATH)"
           }
 
-          if (-not (Test-Path -LiteralPath 'release/index.html' -PathType Leaf)) {
-            throw '构建产物缺少 release/index.html'
+          $releaseName = if ($env:DEPLOY_PATH.TrimEnd('/') -match '/work$') { 'release-work' } else { 'release-root' }
+          $releasePath = Join-Path 'release' $releaseName
+          $indexPath = Join-Path $releasePath 'index.html'
+          if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
+            throw "构建产物缺少 $indexPath"
+          }
+
+          $indexHtml = Get-Content -LiteralPath $indexPath -Raw
+          if ($releaseName -eq 'release-work' -and $indexHtml -notmatch '(src|href)="/work/assets/') {
+            throw 'work 子路径构建未引用 /work/assets/'
+          }
+          if ($releaseName -eq 'release-root' -and $indexHtml -match '(src|href)="/work/assets/') {
+            throw '根路径构建错误引用了 /work/assets/'
           }
 
           foreach ($command in 'tar.exe', 'scp.exe', 'ssh.exe') {
@@ -154,6 +190,8 @@ jobs:
           $scriptName = "deploy-h5-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT).sh"
           $scriptPath = Join-Path $tempDirectory $scriptName
           $remote = "$($env:DEPLOY_USER)@$($env:DEPLOY_HOST)"
+          $releaseName = if ($env:DEPLOY_PATH.TrimEnd('/') -match '/work$') { 'release-work' } else { 'release-root' }
+          $releasePath = Join-Path 'release' $releaseName
 
           New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 
@@ -207,7 +245,18 @@ jobs:
             exit 1
           fi
 
-          if ! test -s "$deploy_path/index.html"; then
+          verify_release() {
+            test -s "$deploy_path/index.html" || return 1
+            while IFS= read -r asset; do
+              relative="${asset#/}"
+              if [[ "$relative" == work/* ]]; then
+                relative="${relative#work/}"
+              fi
+              test -s "$deploy_path/$relative" || return 1
+            done < <(grep -oE '(src|href)="/[^"]+\.(js|css)"' "$deploy_path/index.html" | sed -E 's/^(src|href)="([^"]+)"/\2/')
+          }
+
+          if ! verify_release; then
             if [ "$has_backup" = true ]; then
               rsync -r --delete "$backup/" "$deploy_path/"
             fi
@@ -220,7 +269,7 @@ jobs:
             [IO.File]::WriteAllText($scriptPath, $remoteScript, [Text.UTF8Encoding]::new($false))
 
             Invoke-NativeCommand -Description '压缩部署产物' -Command {
-              & tar.exe -czf $archivePath -C release .
+              & tar.exe -czf $archivePath -C $releasePath .
             }
 
             $sshOptions = @(

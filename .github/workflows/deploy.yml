@@ -251,12 +251,24 @@ jobs:
           }
           trap cleanup EXIT
 
+          report_error() {
+            local exit_code=$?
+            echo "REMOTE_DEPLOY_ERROR line=$1 exit=$exit_code command=$2" >&2
+            exit "$exit_code"
+          }
+          trap 'report_error "$LINENO" "$BASH_COMMAND"' ERR
+
           if [ -z "$deploy_path" ] || [ "$deploy_path" = / ]; then
             echo "Invalid deployment path: $deploy_path" >&2
             exit 1
           fi
 
-          command -v rsync >/dev/null 2>&1
+          command -v rsync >/dev/null 2>&1 || {
+            echo 'REMOTE_DEPLOY_ERROR missing command: rsync' >&2
+            exit 127
+          }
+          echo "Remote deployment user: $(id -un)"
+          echo "Remote deployment path: $deploy_path"
           mkdir -p "$directory"
           tar -xzf "$HOME/$archive" -C "$directory"
           test -s "$directory/index.html"

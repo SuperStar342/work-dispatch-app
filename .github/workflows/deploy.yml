@@ -86,16 +86,21 @@ jobs:
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
           $ErrorActionPreference = 'Stop'
           [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-          foreach ($name in 'DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS') {
+          foreach ($name in 'DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_PATH', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS') {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
               throw "$name 为空"
             }
+          }
+
+          if ($env:DEPLOY_PATH -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:DEPLOY_PATH -eq '/') {
+            throw "DEPLOY_PATH 非法: $($env:DEPLOY_PATH)"
           }
 
           if (-not (Test-Path -LiteralPath 'release/index.html' -PathType Leaf)) {
@@ -120,6 +125,7 @@ jobs:
         env:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
@@ -165,25 +171,50 @@ jobs:
           set -euo pipefail
 
           archive="$1"
+          deploy_path="${2%/}"
           base="$HOME/work-h5"
           version="v$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-manual}"
           directory="$base/releases/$version"
-          next_link="$base/.work-next-$$"
+          backup="$base/backups/$version"
+          has_backup=false
 
           cleanup() {
-            rm -f "$next_link"
+            rm -f "$HOME/$archive" "$0"
           }
           trap cleanup EXIT
 
+          if [ -z "$deploy_path" ] || [ "$deploy_path" = / ]; then
+            echo "Invalid deployment path: $deploy_path" >&2
+            exit 1
+          fi
+
+          command -v rsync >/dev/null 2>&1
           mkdir -p "$directory"
           tar -xzf "$HOME/$archive" -C "$directory"
           test -s "$directory/index.html"
 
-          ln -s "releases/$version" "$next_link"
-          mv -Tf "$next_link" "$base/work"
+          if [ -d "$deploy_path" ]; then
+            mkdir -p "$backup"
+            rsync -a "$deploy_path/" "$backup/"
+            has_backup=true
+          fi
 
-          rm -f "$HOME/$archive"
-          echo "Deployed: $version"
+          mkdir -p "$deploy_path"
+          if ! rsync -a --delete "$directory/" "$deploy_path/"; then
+            if [ "$has_backup" = true ]; then
+              rsync -a --delete "$backup/" "$deploy_path/"
+            fi
+            exit 1
+          fi
+
+          if ! test -s "$deploy_path/index.html"; then
+            if [ "$has_backup" = true ]; then
+              rsync -a --delete "$backup/" "$deploy_path/"
+            fi
+            exit 1
+          fi
+
+          echo "Deployed: $version -> $deploy_path"
           '@
             $remoteScript = $remoteScript -replace "`r`n", "`n"
             [IO.File]::WriteAllText($scriptPath, $remoteScript, [Text.UTF8Encoding]::new($false))
@@ -205,7 +236,7 @@ jobs:
             }
 
             Invoke-NativeCommand -Description '执行远程部署' -Command {
-              & ssh.exe @sshOptions $remote "GITHUB_RUN_ID='$($env:GITHUB_RUN_ID)' bash ~/$scriptName '$archiveName'"
+              & ssh.exe @sshOptions $remote "GITHUB_RUN_ID='$($env:GITHUB_RUN_ID)' bash ~/$scriptName '$archiveName' '$($env:DEPLOY_PATH)'"
             }
 
             Write-Host "Deployment completed: $remote"

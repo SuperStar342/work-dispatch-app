@@ -1,5 +1,5 @@
 export const appConfig = {
-  title: import.meta.env.VITE_APP_TITLE || '员工报工',
+  title: import.meta.env.VITE_APP_TITLE || '智造报工',
   baseUrl: import.meta.env.VITE_APP_BASE_URL || '/api',
   clientId: import.meta.env.VITE_OAUTH_CLIENT_ID || 'saber3',
   clientSecret: import.meta.env.VITE_OAUTH_CLIENT_SECRET || 'saber3_secret',
@@ -12,6 +12,9 @@ export const appConfig = {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
   grantType: import.meta.env.VITE_LOGIN_GRANT_TYPE || 'password',
+  dingTalkCorpId: import.meta.env.VITE_DINGTALK_CORP_ID || '',
+  dingTalkClientId: import.meta.env.VITE_DINGTALK_CLIENT_ID || '',
+  dingTalkAutoLogin: String(import.meta.env.VITE_DINGTALK_AUTO_LOGIN || 'true').toLowerCase() !== 'false',
   tokenHeader: 'Blade-Auth',
 }
 
@@ -22,4 +25,6 @@ export const STORAGE_KEYS = {
   empNo: 'wd-emp-no',
   empName: 'wd-emp-name',
   empOwner: 'wd-emp-owner',
+  /** Prevent an invalid DingTalk session from triggering an automatic login loop. */
+  dingAutoLoginBlocked: 'wd-dingtalk-auto-login-blocked',
 }

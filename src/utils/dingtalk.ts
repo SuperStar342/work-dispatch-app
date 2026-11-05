@@ -1,0 +1,65 @@
+import { appConfig } from './config'
+
+type DingTalkAuthResult = { code?: string; authCode?: string }
+
+const getCorpId = () => {
+  if (typeof window === 'undefined') return appConfig.dingTalkCorpId
+  try {
+    return new URL(window.location.href).searchParams.get('corpid') || appConfig.dingTalkCorpId
+  } catch {
+    return appConfig.dingTalkCorpId
+  }
+}
+
+export const isDingTalkContainer = () => {
+  if (typeof navigator === 'undefined') return false
+  return /DingTalk/i.test(navigator.userAgent || '')
+}
+
+export const canAutoLoginWithDingTalk = () =>
+  appConfig.dingTalkAutoLogin && isDingTalkContainer() && Boolean(getCorpId())
+
+export function requestDingTalkAuthCode(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const dd = typeof window === 'undefined' ? undefined : window.dd
+    const corpId = getCorpId()
+    if (!dd) {
+      reject(new Error('钉钉 JSAPI 未加载，请从钉钉工作台重新打开应用'))
+      return
+    }
+    if (!corpId) {
+      reject(new Error('未获取到企业 CorpId，请检查钉钉应用首页地址配置'))
+      return
+    }
+
+    const done = (result: DingTalkAuthResult) => {
+      const code = result?.code || result?.authCode
+      if (code) resolve(code)
+      else reject(new Error('钉钉未返回免登授权码'))
+    }
+    const fail = (error: any) => {
+      const message = error?.errorMessage || error?.message || error?.error || '钉钉免登授权失败'
+      reject(new Error(String(message)))
+    }
+    const invoke = () => {
+      const modern = dd.requestAuthCode
+      if (typeof modern === 'function' && appConfig.dingTalkClientId) {
+        modern({ clientId: appConfig.dingTalkClientId, corpId, success: done, fail })
+        return
+      }
+      const legacy = dd.runtime?.permission?.requestAuthCode
+      if (typeof legacy !== 'function') {
+        fail(new Error('当前钉钉版本不支持 H5 免登，请升级钉钉后重试'))
+        return
+      }
+      legacy({ corpId, onSuccess: done, onFail: fail })
+    }
+
+    if (typeof dd.ready === 'function') {
+      if (typeof dd.error === 'function') dd.error(fail)
+      dd.ready(invoke)
+    } else {
+      invoke()
+    }
+  })
+}

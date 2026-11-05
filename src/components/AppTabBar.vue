@@ -53,7 +53,7 @@ const go = (url: string) => {
   right: 0;
   bottom: 0;
   z-index: 20;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8rpx);
   background: #fff;
   border-top: 1rpx solid #eef1f6;
 }

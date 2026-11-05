@@ -77,7 +77,7 @@ const open = (row: WorkReportRecord) => {
 const load = async () => {
   loading.value = true
   try {
-    const mine = !user.isLeader
+    const mine = user.isOwnScope
     const res = await getReportRecords({ pageNo: 1, pageSize: 50 }, { mine })
     const server = (res.data.list || []).map((row: WorkReportRecord) => ({ ...row, mode: row.mode || 'piece' }))
     // 计时报工走独立接口（服务端），本地仅作离线草稿兜底

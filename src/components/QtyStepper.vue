@@ -1,16 +1,22 @@
 <template>
   <view class="step">
     <view class="btn" @click="change(-1)">−</view>
-    <input class="val" type="number" :value="modelValue" @input="onInput" />
+    <input class="val" type="text" inputmode="numeric" pattern="[0-9]*" :value="modelValue" @input="onInput" />
     <view class="btn plus" @click="change(1)">+</view>
   </view>
 </template>
 
 <script setup lang="ts">
+import { normalizeWholeQuantity, syncWholeQuantityInput } from '@/utils/quantity'
+
 const props = defineProps<{ modelValue: number }>()
 const emit = defineEmits(['update:modelValue'])
-const change = (d: number) => emit('update:modelValue', Math.max(0, Number(props.modelValue || 0) + d))
-const onInput = (e: any) => emit('update:modelValue', Math.max(0, Number(e.detail.value || 0)))
+const change = (d: number) => emit('update:modelValue', normalizeWholeQuantity(Number(props.modelValue || 0) + d))
+const onInput = (e: any) => {
+  const value = normalizeWholeQuantity(e.detail.value)
+  emit('update:modelValue', value)
+  return syncWholeQuantityInput(e, value)
+}
 </script>
 
 <style lang="scss" scoped>

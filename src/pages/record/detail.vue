@@ -161,7 +161,7 @@ const withdraw = () => {
           }
           removeTimeReport(current.id || current.reportNo)
         } else {
-          await withdrawDispatchReport(current.reportNo, { mine: !user.isLeader })
+          await withdrawDispatchReport(current.reportNo, { mine: user.isOwnScope })
         }
         uni.showToast({ title: t('record.withdrawn'), icon: 'none' })
         setTimeout(() => uni.navigateBack(), 400)

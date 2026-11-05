@@ -170,7 +170,7 @@ const deltaText = computed(() => {
 })
 
 const load = async (force = false) => {
-  const scoped = !user.isLeader
+  const scoped = user.isOwnScope
   let noticeRows: WorkReportRecord[] = []
   // 计时报工：服务端数据优先
   const timeTask = getTimeRecords({ limit: 200 })
@@ -184,11 +184,6 @@ const load = async (force = false) => {
     .then(async (rec) => {
       records.value = rec.data.list || []
       noticeRows = records.value
-      const emp = String(user.empNo || user.account || '')
-      if (!noticeRows.length && scoped && !/^\d{4,}$/.test(emp)) {
-        const team = await getReportRecords({ pageNo: 1, pageSize: 50 })
-        noticeRows = team.data.list || []
-      }
       const today = todayPrefix()
       todayQty.value = records.value.reduce((sum, row) => {
         const time = String(row.reportTime || '')
@@ -200,7 +195,11 @@ const load = async (force = false) => {
       records.value = []
       todayQty.value = 0
     })
-  await Promise.all([ctx.load({ force, pageSize: 10, empNo: user.empNo, isLeader: user.isLeader }), recordsTask, timeTask])
+  await Promise.all([
+    ctx.load({ force, pageSize: 10, empNo: user.empNo, isLeader: user.isLeader && !user.isOwnScope }),
+    recordsTask,
+    timeTask,
+  ])
   refreshAuditNotices([...timeRecords.value, ...noticeRows])
 }
 
@@ -224,7 +223,7 @@ onPullDownRefresh(async () => {
 
 <style lang="scss" scoped>
 .home {
-  padding: 0 24rpx 24rpx;
+  padding: 0 24rpx calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 40rpx);
 }
 .header {
   padding: 12rpx 8rpx 20rpx;

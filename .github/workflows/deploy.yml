@@ -1,5 +1,4 @@
-
-name: Deploy H5 to Webdock
+name: Deploy H5 to intranet server
 
 on:
   push:
@@ -16,13 +15,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: webdock-h5
+  group: work-dispatch-h5
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    name: Build H5
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || vars.DEFAULT_DEPLOY_ENV || 'webdock-vps' }}
 
     steps:
       - name: Checkout
@@ -45,11 +44,12 @@ jobs:
       - name: Build H5
         env:
           VITE_APP_BASE_URL: /api
-        run: pnpm run build:h5
+        run: pnpm run build:h5:work
 
       - name: Collect files
         shell: bash
         run: |
+          set -euo pipefail
           mkdir release
           for dir in dist/build/h5 dist/build/web \
             unpackage/dist/build/web unpackage/dist/build/h5; do
@@ -58,58 +58,157 @@ jobs:
               break
             fi
           done
-          test -f release/index.html
+          test -s release/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: h5-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 3
+
+  deploy:
+    name: Deploy from intranet runner
+    needs: build
+    runs-on: [self-hosted, windows, x64]
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || vars.DEFAULT_DEPLOY_ENV || 'webdock-vps' }}
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: h5-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release
+
+      - name: Check deployment environment
+        shell: powershell
+        env:
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          foreach ($name in 'DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name 为空"
+            }
+          }
+
+          if (-not (Test-Path -LiteralPath 'release/index.html' -PathType Leaf)) {
+            throw '构建产物缺少 release/index.html'
+          }
+
+          foreach ($command in 'tar.exe', 'scp.exe', 'ssh.exe') {
+            if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
+              throw "内网 Runner 缺少命令: $command"
+            }
+          }
+
+          $connection = Test-NetConnection -ComputerName $env:DEPLOY_HOST -Port 22 -WarningAction SilentlyContinue
+          if (-not $connection.TcpTestSucceeded) {
+            throw "内网 Runner 无法连接 $($env:DEPLOY_HOST):22，请检查 Runner 所在网络、SSH 服务和防火墙"
+          }
+
+          Write-Host "SSH connectivity check passed: $($env:DEPLOY_HOST):22"
 
       - name: Upload and deploy
-        shell: bash
+        shell: powershell
         env:
-          HOST: ${{ vars.DEPLOY_HOST }}
-          USER: ${{ vars.DEPLOY_USER }}
-          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          HOST_KEYS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
-          ARCHIVE: h5-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
-          set -euo pipefail
-          : "${HOST:?DEPLOY_HOST 为空}"
-          : "${USER:?DEPLOY_USER 为空}"
-          : "${KEY:?DEPLOY_SSH_KEY 为空}"
-          : "${HOST_KEYS:?DEPLOY_KNOWN_HOSTS 为空}"
-          
-          echo "Deploying to ${USER}@${HOST}"
+          $ErrorActionPreference = 'Stop'
 
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
-          printf '%s\n' "$HOST_KEYS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/deploy_key
+          function Invoke-NativeCommand {
+            param(
+              [Parameter(Mandatory = $true)]
+              [scriptblock] $Command,
+              [Parameter(Mandatory = $true)]
+              [string] $Description
+            )
 
-          tar -czf "$ARCHIVE" -C release .
+            & $Command
+            if ($LASTEXITCODE -ne 0) {
+              throw "$Description 失败，退出码: $LASTEXITCODE"
+            }
+          }
 
-          remote="${USER}@${HOST}"
+          $tempDirectory = Join-Path $env:RUNNER_TEMP "work-dispatch-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
+          $keyPath = Join-Path $tempDirectory 'deploy_key'
+          $knownHostsPath = Join-Path $tempDirectory 'known_hosts'
+          $archiveName = "h5-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT).tar.gz"
+          $archivePath = Join-Path $tempDirectory $archiveName
+          $scriptName = "deploy-h5-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT).sh"
+          $scriptPath = Join-Path $tempDirectory $scriptName
+          $remote = "$($env:DEPLOY_USER)@$($env:DEPLOY_HOST)"
 
-          scp -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=yes \
-            -o BatchMode=yes \
-            "$ARCHIVE" "${remote}:~/$ARCHIVE"
+          New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
 
-          ssh -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=yes \
-            -o BatchMode=yes \
-            "$remote" "bash -s -- '$ARCHIVE'" <<'REMOTE'
+          try {
+            [IO.File]::WriteAllText($keyPath, ($env:DEPLOY_SSH_KEY -replace "`r", ''))
+            [IO.File]::WriteAllText($knownHostsPath, ($env:DEPLOY_KNOWN_HOSTS -replace "`r", ''))
+
+            $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            & icacls.exe $keyPath /inheritance:r | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw '设置 SSH 私钥 ACL 失败' }
+            & icacls.exe $keyPath /grant:r "${currentUser}:(R)" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw '授权 SSH 私钥读取权限失败' }
+
+            $remoteScript = @'
           set -euo pipefail
 
           archive="$1"
           base="$HOME/work-h5"
-          version="v$(date -u +%Y%m%d%H%M%S)-$$"
+          version="v$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-manual}"
           directory="$base/releases/$version"
+          next_link="$base/.work-next-$$"
+
+          cleanup() {
+            rm -f "$next_link"
+          }
+          trap cleanup EXIT
 
           mkdir -p "$directory"
           tar -xzf "$HOME/$archive" -C "$directory"
           test -s "$directory/index.html"
 
-          ln -s "releases/$version" "$base/.work-next-$$"
-          mv -Tf "$base/.work-next-$$" "$base/work"
+          ln -s "releases/$version" "$next_link"
+          mv -Tf "$next_link" "$base/work"
 
           rm -f "$HOME/$archive"
           echo "Deployed: $version"
-          REMOTE
+          '@
+            [IO.File]::WriteAllText($scriptPath, $remoteScript, [Text.UTF8Encoding]::new($false))
+
+            Invoke-NativeCommand -Description '压缩部署产物' -Command {
+              & tar.exe -czf $archivePath -C release .
+            }
+
+            $sshOptions = @(
+              '-i', $keyPath,
+              '-o', "UserKnownHostsFile=$knownHostsPath",
+              '-o', 'StrictHostKeyChecking=yes',
+              '-o', 'BatchMode=yes',
+              '-o', 'ConnectTimeout=15'
+            )
+
+            Invoke-NativeCommand -Description '上传部署产物' -Command {
+              & scp.exe @sshOptions $archivePath $scriptPath "${remote}:~/"
+            }
+
+            Invoke-NativeCommand -Description '执行远程部署' -Command {
+              & ssh.exe @sshOptions $remote "GITHUB_RUN_ID='$($env:GITHUB_RUN_ID)' bash ~/$scriptName '$archiveName'"
+            }
+
+            Write-Host "Deployment completed: $remote"
+          }
+          finally {
+            if (Test-Path -LiteralPath $tempDirectory) {
+              [IO.Directory]::Delete($tempDirectory, $true)
+            }
+          }

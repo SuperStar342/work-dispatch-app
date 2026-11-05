@@ -44,7 +44,7 @@ jobs:
       - name: Build H5
         env:
           VITE_APP_BASE_URL: /api
-        run: pnpm run build:h5:work
+        run: pnpm run build:h5
 
       - name: Collect files
         shell: bash

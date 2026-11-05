@@ -114,6 +114,7 @@ jobs:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || vars.DEPLOY_HOST }}
           DEPLOY_HOST_FALLBACK: ${{ vars.DEPLOY_HOST == '77.46.140.135' && vars.DEPLOY_HOST || '' }}
           DEPLOY_HOST_KEY_ALIAS: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || '' }}
+          DEPLOY_USER_FALLBACK: ${{ vars.DEPLOY_HOST == '77.46.140.135' && 'root' || '' }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -174,6 +175,7 @@ jobs:
 
           "DEPLOY_HOST=$resolvedHost" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DEPLOY_HOST_KEY_ALIAS=$($env:DEPLOY_HOST_KEY_ALIAS)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DEPLOY_USER_FALLBACK=$($env:DEPLOY_USER_FALLBACK)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "SSH connectivity check passed: ${resolvedHost}:22"
 
       - name: Upload and deploy
@@ -208,7 +210,6 @@ jobs:
           $archivePath = Join-Path $tempDirectory $archiveName
           $scriptName = "deploy-h5-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT).sh"
           $scriptPath = Join-Path $tempDirectory $scriptName
-          $remote = "$($env:DEPLOY_USER)@$($env:DEPLOY_HOST)"
           $releaseName = if ($env:DEPLOY_PATH.TrimEnd('/') -match '/work$') { 'release-work' } else { 'release-root' }
           $releasePath = Join-Path 'release' $releaseName
 
@@ -305,6 +306,24 @@ jobs:
             )
             if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_HOST_KEY_ALIAS)) {
               $sshOptions += @('-o', "HostKeyAlias=$($env:DEPLOY_HOST_KEY_ALIAS)")
+            }
+
+            $candidateUsers = @($env:DEPLOY_USER)
+            if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_USER_FALLBACK) -and $env:DEPLOY_USER_FALLBACK -ne $env:DEPLOY_USER) {
+              $candidateUsers += $env:DEPLOY_USER_FALLBACK
+            }
+
+            $remote = $null
+            foreach ($candidateUser in $candidateUsers) {
+              & ssh.exe @sshOptions "${candidateUser}@$($env:DEPLOY_HOST)" 'true'
+              if ($LASTEXITCODE -eq 0) {
+                $remote = "${candidateUser}@$($env:DEPLOY_HOST)"
+                break
+              }
+              Write-Warning "SSH key authentication failed for user: $candidateUser"
+            }
+            if ([string]::IsNullOrWhiteSpace($remote)) {
+              throw "SSH 私钥未获任一部署用户授权: $($candidateUsers -join ', ')"
             }
 
             Invoke-NativeCommand -Description '上传部署产物' -Command {

@@ -230,6 +230,11 @@ jobs:
             & icacls.exe $keyPath /grant:r "${currentUser}:(R)" | Out-Null
             if ($LASTEXITCODE -ne 0) { throw '授权 SSH 私钥读取权限失败' }
 
+            $deployPublicKey = (& ssh-keygen.exe -y -f $keyPath 2>$null) -join ''
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deployPublicKey)) {
+              throw 'DEPLOY_SSH_KEY 无法派生公钥，请重新保存有效的 OpenSSH 私钥'
+            }
+
             $remoteScript = @'
           set -euo pipefail
 
@@ -323,6 +328,7 @@ jobs:
               Write-Warning "SSH key authentication failed for user: $candidateUser"
             }
             if ([string]::IsNullOrWhiteSpace($remote)) {
+              Write-Host "DEPLOY_PUBLIC_KEY=$deployPublicKey"
               throw "SSH 私钥未获任一部署用户授权: $($candidateUsers -join ', ')"
             }
 

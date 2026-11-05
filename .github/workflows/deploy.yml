@@ -263,27 +263,38 @@ jobs:
             exit 1
           fi
 
-          command -v rsync >/dev/null 2>&1 || {
-            echo 'REMOTE_DEPLOY_ERROR missing command: rsync' >&2
-            exit 127
-          }
           echo "Remote deployment user: $(id -un)"
           echo "Remote deployment path: $deploy_path"
           mkdir -p "$directory"
           tar -xzf "$HOME/$archive" -C "$directory"
           test -s "$directory/index.html"
 
+          clear_directory() {
+            local target=$1
+            find "$target" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          }
+
+          restore_backup() {
+            if [ "$has_backup" = true ]; then
+              mkdir -p "$deploy_path"
+              clear_directory "$deploy_path"
+              cp -a "$backup/." "$deploy_path/"
+            fi
+          }
+
           if [ -d "$deploy_path" ]; then
             mkdir -p "$backup"
-            rsync -r "$deploy_path/" "$backup/"
+            cp -a "$deploy_path/." "$backup/"
             has_backup=true
           fi
 
           mkdir -p "$deploy_path"
-          if ! rsync -r --delete "$directory/" "$deploy_path/"; then
-            if [ "$has_backup" = true ]; then
-              rsync -r --delete "$backup/" "$deploy_path/"
-            fi
+          if ! clear_directory "$deploy_path"; then
+            restore_backup
+            exit 1
+          fi
+          if ! cp -a "$directory/." "$deploy_path/"; then
+            restore_backup
             exit 1
           fi
 
@@ -299,9 +310,7 @@ jobs:
           }
 
           if ! verify_release; then
-            if [ "$has_backup" = true ]; then
-              rsync -r --delete "$backup/" "$deploy_path/"
-            fi
+            restore_backup
             exit 1
           fi
 

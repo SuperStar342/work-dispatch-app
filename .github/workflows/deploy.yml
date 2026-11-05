@@ -90,6 +90,7 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
           $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
           foreach ($name in 'DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS') {
             if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
@@ -123,6 +124,7 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
         run: |
           $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
           function Invoke-NativeCommand {
             param(
@@ -183,6 +185,7 @@ jobs:
           rm -f "$HOME/$archive"
           echo "Deployed: $version"
           '@
+            $remoteScript = $remoteScript -replace "`r`n", "`n"
             [IO.File]::WriteAllText($scriptPath, $remoteScript, [Text.UTF8Encoding]::new($false))
 
             Invoke-NativeCommand -Description '压缩部署产物' -Command {

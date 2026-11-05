@@ -63,7 +63,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: h5-${{ github.run_id }}-${{ github.run_attempt }}
+          name: h5-${{ github.run_id }}
           path: release/
           if-no-files-found: error
           retention-days: 3
@@ -78,7 +78,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: h5-${{ github.run_id }}-${{ github.run_attempt }}
+          name: h5-${{ github.run_id }}
           path: release
 
       - name: Check deployment environment

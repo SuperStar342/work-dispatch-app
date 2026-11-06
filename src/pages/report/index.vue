@@ -36,7 +36,15 @@
 
       <view v-if="mode === 'piece'" class="card block">
         <text class="h">{{ t('report.qty') }}</text>
-        <input class="qty" type="text" inputmode="numeric" pattern="[0-9]*" :value="reportQty" @input="onQty" />
+        <input
+          class="qty"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          :aria-label="t('report.qty')"
+          :value="reportQty"
+          @input="onQty"
+        />
         <view class="chips">
           <QtyChips :chips="[10, 20, 50]" @add="addQty" />
           <view class="custom" @click="fillMax">{{ t('report.custom') }}</view>

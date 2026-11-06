@@ -118,6 +118,13 @@ export const useUserStore = defineStore('user', {
       if (this.account) uni.setStorageSync(STORAGE_KEYS.empOwner, this.account)
     },
     async logout() {
+      // Explicit logout must win over the login page's DingTalk auto-login.
+      // Keep the marker before calling the remote endpoint so a slow/offline
+      // logout request cannot immediately sign the same DingTalk user in again.
+      uni.setStorageSync(STORAGE_KEYS.dingAutoLoginBlocked, {
+        reason: 'logout',
+        at: Date.now(),
+      })
       await logoutApi()
       resetAuditNotices()
       clearAuth()

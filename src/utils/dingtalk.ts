@@ -19,6 +19,25 @@ export const isDingTalkContainer = () => {
 export const canAutoLoginWithDingTalk = () =>
   appConfig.dingTalkAutoLogin && isDingTalkContainer() && Boolean(getCorpId())
 
+/**
+ * An H5 micro-app cannot switch the DingTalk client account itself. Close the
+ * current micro-app when possible so the user can switch accounts in DingTalk,
+ * then reopen the app from the workbench.
+ */
+export function closeForDingTalkAccountSwitch() {
+  const dd = typeof window === 'undefined' ? undefined : window.dd
+  const close = dd?.biz?.navigation?.close
+  if (typeof close === 'function') {
+    close({
+      onFail: () => {
+        if (typeof history !== 'undefined' && history.length > 1) history.back()
+      },
+    })
+    return
+  }
+  if (typeof history !== 'undefined' && history.length > 1) history.back()
+}
+
 export function requestDingTalkAuthCode(): Promise<string> {
   return new Promise((resolve, reject) => {
     const dd = typeof window === 'undefined' ? undefined : window.dd

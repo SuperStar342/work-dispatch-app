@@ -57,7 +57,19 @@
           </view>
         </view>
 
-        <view v-if="dingState === 'failed'" class="error-card" role="alert">
+        <view v-if="dingState === 'signedOut'" class="error-card account-choice" role="status">
+          <text class="error-title">{{ t('login.signedOut') }}</text>
+          <text class="error-message">{{ t('login.chooseAccount') }}</text>
+          <button class="primary-action" :disabled="loading" @click="onDingTalkLogin(true)">
+            {{ t('login.currentDing') }}
+          </button>
+          <button class="secondary-action" :disabled="loading" @click="onOtherDingTalkAccount">
+            {{ t('login.otherDing') }}
+          </button>
+          <button class="back-to-ding" @click="mode = 'password'">{{ t('login.usePassword') }}</button>
+        </view>
+
+        <view v-else-if="dingState === 'failed'" class="error-card" role="alert">
           <text class="error-title">{{ dingErrorTitle }}</text>
           <text class="error-message">{{ dingErrorMessage }}</text>
           <button v-if="dingTalk" class="primary-action" :disabled="loading" @click="onDingTalkLogin(true)">
@@ -130,11 +142,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '@/store/user'
 import { locale, t } from '@/i18n'
 import LangSwitch from '@/components/LangSwitch.vue'
-import { isDingTalkContainer, requestDingTalkAuthCode } from '@/utils/dingtalk'
+import { closeForDingTalkAccountSwitch, isDingTalkContainer, requestDingTalkAuthCode } from '@/utils/dingtalk'
 import { STORAGE_KEYS } from '@/utils/config'
 
 type LoginMode = 'dingtalk' | 'password'
-type DingState = 'idle' | 'checking' | 'verified' | 'failed'
+type DingState = 'idle' | 'checking' | 'verified' | 'failed' | 'signedOut'
 
 const username = ref('')
 const password = ref('')
@@ -149,6 +161,7 @@ const showTabs = computed(() => !dingTalk || dingState.value === 'failed' || mod
 const missingJobNumber = computed(() => /未维护工号|员工工号|employee number/i.test(errorText.value))
 const dingStatusTitle = computed(() => {
   if (dingState.value === 'verified') return t('login.verified')
+  if (dingState.value === 'signedOut') return t('login.signedOut')
   if (dingState.value === 'failed') return t('login.dingFailed')
   if (!dingTalk) return t('login.dingTitle')
   return t('login.identifying')
@@ -191,6 +204,7 @@ const onLogin = async () => {
   errorText.value = ''
   try {
     await user.login(username.value.trim(), password.value)
+    uni.removeStorageSync(STORAGE_KEYS.dingAutoLoginBlocked)
     uni.reLaunch({ url: '/pages/home/index' })
   } catch (error: any) {
     errorText.value = error?.message || t('login.failed')
@@ -199,9 +213,26 @@ const onLogin = async () => {
   }
 }
 
+const onOtherDingTalkAccount = () => {
+  uni.showModal({
+    title: t('login.switchDingTitle'),
+    content: t('login.switchDingDesc'),
+    confirmText: t('login.switchDingConfirm'),
+    cancelText: t('common.cancel'),
+    success: (result) => {
+      if (result.confirm) closeForDingTalkAccountSwitch()
+    },
+  })
+}
+
 onMounted(() => {
   if (!dingTalk) return
-  if (uni.getStorageSync(STORAGE_KEYS.dingAutoLoginBlocked)) {
+  const blocked = uni.getStorageSync(STORAGE_KEYS.dingAutoLoginBlocked)
+  if (blocked && typeof blocked === 'object' && blocked.reason === 'logout') {
+    dingState.value = 'signedOut'
+    return
+  }
+  if (blocked) {
     errorText.value = t('login.sessionRejected')
     dingState.value = 'failed'
     return

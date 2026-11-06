@@ -44,7 +44,15 @@
           <text class="code">{{ row.wtNo }}</text>
           <text class="d">{{ t('batch.pending', { n: fmtQty(row.pendingQty) }) }}</text>
         </view>
-        <input class="q" type="text" inputmode="numeric" pattern="[0-9]*" :value="qtyMap[row.id]" @input="(e: any) => setQty(row.id, e, row.pendingQty)" />
+        <input
+          class="q"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          :aria-label="`${row.wtNo} ${t('batch.qty')}`"
+          :value="qtyMap[row.id]"
+          @input="(e: any) => setQty(row.id, e, row.pendingQty)"
+        />
       </view>
     </view>
 

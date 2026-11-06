@@ -39,17 +39,18 @@ export function requestDingTalkAuthCode(): Promise<string> {
     }
     const fail = (error: any) => {
       const message = error?.errorMessage || error?.message || error?.error || '钉钉免登授权失败'
-      reject(new Error(String(message)))
+      reject(new Error(`钉钉客户端获取授权码失败：${String(message)}`))
     }
     const invoke = () => {
-      const modern = dd.requestAuthCode
-      if (typeof modern === 'function' && appConfig.dingTalkClientId) {
-        modern({ clientId: appConfig.dingTalkClientId, corpId, success: done, fail })
-        return
-      }
+      // blade-auth exchanges enterprise micro-app codes through
+      // /topapi/v2/user/getuserinfo. Codes returned by the newer
+      // dd.requestAuthCode belong to a different authorization flow and are
+      // rejected by that endpoint as an invalid authorization type. Keep the
+      // client ID in the build configuration, but request the matching
+      // enterprise micro-app code here.
       const legacy = dd.runtime?.permission?.requestAuthCode
       if (typeof legacy !== 'function') {
-        fail(new Error('当前钉钉版本不支持 H5 免登，请升级钉钉后重试'))
+        fail(new Error('当前钉钉版本不支持企业内部微应用免登，请升级钉钉后重试'))
         return
       }
       legacy({ corpId, onSuccess: done, onFail: fail })

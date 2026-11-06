@@ -26,9 +26,12 @@ VITE_DINGTALK_CORP_ID=
 VITE_DINGTALK_AUTO_LOGIN=true
 ```
 
-`VITE_DINGTALK_CLIENT_ID` 是“智造报工”企业内部应用的 AppKey，用于新版
-`dd.requestAuthCode({ clientId, corpId })` 获取免登授权码。它是公开的客户端标识，正式构建已在
-GitHub Actions 中固定配置；AppSecret 严禁写入前端环境文件或工作流。
+`VITE_DINGTALK_CLIENT_ID` 是“智造报工”企业内部应用的 AppKey。它是公开的客户端标识，
+正式构建已在 GitHub Actions 中固定配置；AppSecret 严禁写入前端环境文件或工作流。
+
+当前服务端使用企业内部微应用接口 `/topapi/v2/user/getuserinfo` 兑换授权码，因此 H5 必须调用
+`dd.runtime.permission.requestAuthCode({ corpId })` 获取同类型授权码。不要单独切换为新版
+`dd.requestAuthCode({ clientId, corpId })`；如果以后切换，服务端的授权码兑换流程也必须同步升级。
 
 如果首页地址已包含 `corpid=$CORPID$`，`VITE_DINGTALK_CORP_ID` 可保持为空。
 

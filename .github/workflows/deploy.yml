@@ -22,6 +22,10 @@ jobs:
   build:
     name: Build H5
     runs-on: ubuntu-latest
+    env:
+      # AppKey is the public client identifier required by dd.requestAuthCode.
+      # AppSecret must remain server-side and must never be added here.
+      VITE_DINGTALK_CLIENT_ID: ding6klbziftyuowibuu
 
     steps:
       - name: Checkout
@@ -82,6 +86,7 @@ jobs:
           test -s release-work/index.html
           grep -qE '(src|href)="/work/assets/' release-work/index.html
           ! grep -qE '(src|href)="/assets/' release-work/index.html
+          grep -RqsF "$VITE_DINGTALK_CLIENT_ID" release-work/assets
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

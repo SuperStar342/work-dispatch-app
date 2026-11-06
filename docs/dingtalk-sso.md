@@ -21,12 +21,16 @@
 ## 前端构建参数
 
 ```dotenv
-VITE_DINGTALK_CLIENT_ID=<企业内部应用 AppKey>
+VITE_DINGTALK_CLIENT_ID=ding6klbziftyuowibuu
 VITE_DINGTALK_CORP_ID=
 VITE_DINGTALK_AUTO_LOGIN=true
 ```
 
-如果首页地址已包含 `corpid=$CORPID$`，`VITE_DINGTALK_CORP_ID` 可保持为空。AppSecret 严禁写入前端环境文件。
+`VITE_DINGTALK_CLIENT_ID` 是“智造报工”企业内部应用的 AppKey，用于新版
+`dd.requestAuthCode({ clientId, corpId })` 获取免登授权码。它是公开的客户端标识，正式构建已在
+GitHub Actions 中固定配置；AppSecret 严禁写入前端环境文件或工作流。
+
+如果首页地址已包含 `corpid=$CORPID$`，`VITE_DINGTALK_CORP_ID` 可保持为空。
 
 ## blade-auth 服务端参数
 

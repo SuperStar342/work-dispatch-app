@@ -350,6 +350,12 @@ jobs:
           if [ -z "$expected_entry" ] || [ "$actual_entry" != "$expected_entry" ]; then
             echo "Nginx is not serving the deployed work directory: $deploy_path" >&2
             if command -v docker >/dev/null 2>&1; then
+              if docker inspect vue-frontend-nginx >/dev/null 2>&1; then
+                echo '=== vue-frontend-nginx effective config ==='
+                docker exec vue-frontend-nginx nginx -T 2>&1 | grep -E '(^|[[:space:]])(listen|root|alias|location|proxy_pass)[[:space:]]'
+                echo '=== vue-frontend-nginx index files ==='
+                docker exec vue-frontend-nginx sh -c 'find /usr/share/nginx/html -maxdepth 3 -name index.html -print -exec grep -oE '\''src="[^"]+index-[^"]+\.js"'\'' {} \;'
+              fi
               docker ps --format 'Container={{.Names}} Ports={{.Ports}}'
               for container in $(docker ps --format '{{.Names}}'); do
                 docker inspect --format 'Container={{.Name}}{{range .Mounts}}{{println}}{{.Source}} -> {{.Destination}}{{end}}' "$container"

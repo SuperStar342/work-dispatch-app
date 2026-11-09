@@ -333,6 +333,11 @@ jobs:
             exit 1
           fi
 
+          if command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
+            docker exec vue-frontend-nginx nginx -t
+            docker exec vue-frontend-nginx nginx -s reload
+          fi
+
           public_prefix=''
           if [[ "$deploy_path" == */work ]]; then
             public_prefix='/work'

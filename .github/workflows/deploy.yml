@@ -270,6 +270,17 @@ jobs:
 
           echo "Remote deployment user: $(id -un)"
           echo "Remote deployment path: $deploy_path"
+          backend_release_sha='4fe2c0dc338d468af17ead43af0989b58297715b'
+          backend_release="$HOME/bladex-ci/releases/$backend_release_sha"
+          if [ "$(id -u)" -eq 0 ] && [ -s "$backend_release/deploy-system.sh" ]; then
+            echo 'Restoring blade-system with the production server test profile'
+            bash "$backend_release/deploy-system.sh" \
+              "$backend_release_sha" \
+              /opt/blade-bp/bladex/script/docker \
+              "$backend_release" \
+              test \
+              180
+          fi
           mkdir -p "$directory"
           tar -xzf "$HOME/$archive" -C "$directory"
           test -s "$directory/index.html"

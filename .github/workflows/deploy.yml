@@ -333,15 +333,45 @@ jobs:
             exit 1
           fi
 
+          public_prefix=''
+          if [[ "$deploy_path" == */work ]]; then
+            public_prefix='/work'
+          fi
+
+          if [ "$public_prefix" = '/work' ] && command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
+            container_name='vue-frontend-nginx'
+            container_target='/usr/share/nginx/html/work'
+            container_backup="/tmp/work-backup-$version"
+            docker exec "$container_name" sh -c '
+              target=$1
+              backup=$2
+              rm -rf "$backup"
+              mkdir -p "$backup"
+              if [ -d "$target" ]; then
+                cp -a "$target/." "$backup/"
+              fi
+              rm -rf "$target"
+              mkdir -p "$target"
+            ' sh "$container_target" "$container_backup"
+            if ! docker cp "$deploy_path/." "$container_name:$container_target/"; then
+              docker exec "$container_name" sh -c '
+                target=$1
+                backup=$2
+                rm -rf "$target"
+                mkdir -p "$target"
+                cp -a "$backup/." "$target/"
+              ' sh "$container_target" "$container_backup"
+              restore_backup
+              exit 1
+            fi
+            docker exec "$container_name" test -s "$container_target/index.html"
+          fi
+
           if command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
             docker exec vue-frontend-nginx nginx -t
             docker exec vue-frontend-nginx nginx -s reload
           fi
 
-          public_prefix=''
-          if [[ "$deploy_path" == */work ]]; then
-            public_prefix='/work'
-          fi
           expected_entry=$(grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" "$deploy_path/index.html" | head -n 1 || true)
           served_index=$(curl -fsS "http://127.0.0.1:8081${public_prefix}/?release=$version")
           actual_entry=$(printf '%s' "$served_index" | grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" | head -n 1 || true)

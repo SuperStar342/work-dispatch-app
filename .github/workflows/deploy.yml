@@ -340,6 +340,7 @@ jobs:
 
           if [ "$public_prefix" = '/work' ] && command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
             container_name='vue-frontend-nginx'
+            restart_frontend_container=true
             container_image=$(docker inspect --format '{{.Config.Image}}' "$container_name")
             host_mount_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/usr/share/nginx/html"}}{{.Source}}{{end}}{{end}}' "$container_name")
             if [ -z "$host_mount_source" ]; then
@@ -378,12 +379,20 @@ jobs:
           fi
 
           if command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
+            if [ "${restart_frontend_container:-false}" = true ]; then
+              docker restart vue-frontend-nginx >/dev/null
+            fi
             docker exec vue-frontend-nginx nginx -t
-            docker exec vue-frontend-nginx nginx -s reload
           fi
 
           expected_entry=$(grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" "$deploy_path/index.html" | head -n 1 || true)
-          served_index=$(curl -fsS "http://127.0.0.1:8081${public_prefix}/?release=$version")
+          served_index=''
+          for attempt in {1..10}; do
+            if served_index=$(curl -fsS "http://127.0.0.1:8081${public_prefix}/?release=$version"); then
+              break
+            fi
+            sleep 1
+          done
           actual_entry=$(printf '%s' "$served_index" | grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" | head -n 1 || true)
           echo "Expected entry: $expected_entry"
           echo "Served entry:   $actual_entry"

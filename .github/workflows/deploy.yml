@@ -347,7 +347,7 @@ jobs:
               restore_backup
               exit 1
             fi
-            if ! tar -C "$deploy_path" -cf - . | docker run --rm -i --entrypoint sh \
+            if ! tar -C "$directory" -cf - . | docker run --rm -i --entrypoint sh \
               -v "$host_mount_source:/target" \
               "$container_image" -c '
                 set -eu

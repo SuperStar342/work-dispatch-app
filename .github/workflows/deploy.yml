@@ -333,6 +333,26 @@ jobs:
             exit 1
           fi
 
+          public_prefix=''
+          if [[ "$deploy_path" == */work ]]; then
+            public_prefix='/work'
+          fi
+          expected_entry=$(grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" "$deploy_path/index.html" | head -n 1 || true)
+          served_index=$(curl -fsS "http://127.0.0.1:8081${public_prefix}/?release=$version")
+          actual_entry=$(printf '%s' "$served_index" | grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" | head -n 1 || true)
+          echo "Expected entry: $expected_entry"
+          echo "Served entry:   $actual_entry"
+          if [ -z "$expected_entry" ] || [ "$actual_entry" != "$expected_entry" ]; then
+            echo "Nginx is not serving the deployed work directory: $deploy_path" >&2
+            if command -v docker >/dev/null 2>&1; then
+              docker ps --format 'Container={{.Names}} Ports={{.Ports}}'
+              for container in $(docker ps --format '{{.Names}}'); do
+                docker inspect --format 'Container={{.Name}}{{range .Mounts}}{{println}}{{.Source}} -> {{.Destination}}{{end}}' "$container"
+              done
+            fi
+            exit 1
+          fi
+
           echo "Deployed: $version -> $deploy_path"
           '@
             $remoteScript = $remoteScript -replace "`r`n", "`n"

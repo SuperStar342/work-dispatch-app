@@ -7,6 +7,16 @@
         <view v-if="process" class="prc">{{ process }}</view>
       </view>
     </view>
+    <view v-if="quickCode || materialName" class="attributes">
+      <view v-if="quickCode" class="attribute">
+        <text class="attribute-label">{{ t('task.quickCode') }}</text>
+        <text class="attribute-value">{{ quickCode }}</text>
+      </view>
+      <view v-if="materialName" class="attribute">
+        <text class="attribute-label">{{ t('task.materialName') }}</text>
+        <text class="attribute-value">{{ materialName }}</text>
+      </view>
+    </view>
     <text class="sub">{{ subLine }}</text>
     <text class="price">{{ priceLine }}</text>
     <view class="foot">
@@ -47,6 +57,8 @@ const percent = computed(() => {
   return Math.min(100, Math.round((num(props.task.fnQty) / all) * 100))
 })
 const process = computed(() => props.task.prcName || props.task.prcCode)
+const quickCode = computed(() => String(props.task.quickCode || '').trim())
+const materialName = computed(() => String(props.task.materialName || '').trim())
 const timed = computed(() => isTimeWage(props.task.pWageType))
 const title = computed(() => {
   const name = props.task.goodsName
@@ -136,6 +148,35 @@ const onAct = () => {
   font-size: 24rpx;
   font-weight: 700;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attributes {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+.attribute {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 10rpx 14rpx;
+  border-radius: 12rpx;
+  background: #f5f8fd;
+  font-size: 23rpx;
+  line-height: 1.25;
+}
+.attribute-label {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.attribute-value {
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

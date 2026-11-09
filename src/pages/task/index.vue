@@ -62,7 +62,9 @@ const shown = computed(() => {
         task.wtNo.toLowerCase().includes(kw) ||
         task.woNo.toLowerCase().includes(kw) ||
         task.prcName.toLowerCase().includes(kw) ||
-        task.goodsName.toLowerCase().includes(kw)
+        task.goodsName.toLowerCase().includes(kw) ||
+        (task.quickCode || '').toLowerCase().includes(kw) ||
+        (task.materialName || '').toLowerCase().includes(kw)
     )
   }
   if (filter.value === 'todo') rows = rows.filter((task) => task.pendingQty > 0)

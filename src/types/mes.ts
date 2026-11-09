@@ -8,6 +8,8 @@ export type MyTask = {
   goodsName: string
   goodsCode: string
   sizeDesc?: string
+  quickCode?: string
+  materialName?: string
   prcCode: string
   prcName: string
   woBorSno: string

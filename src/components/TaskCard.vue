@@ -7,14 +7,14 @@
         <view v-if="process" class="prc">{{ process }}</view>
       </view>
     </view>
-    <view v-if="quickCode || materialName" class="attributes">
-      <view v-if="quickCode" class="attribute">
+    <view class="attributes">
+      <view class="attribute">
         <text class="attribute-label">{{ t('task.quickCode') }}</text>
-        <text class="attribute-value">{{ quickCode }}</text>
+        <text class="attribute-value">{{ quickCode || '—' }}</text>
       </view>
-      <view v-if="materialName" class="attribute">
+      <view class="attribute">
         <text class="attribute-label">{{ t('task.materialName') }}</text>
-        <text class="attribute-value">{{ materialName }}</text>
+        <text class="attribute-value">{{ materialName || '—' }}</text>
       </view>
     </view>
     <text class="sub">{{ subLine }}</text>

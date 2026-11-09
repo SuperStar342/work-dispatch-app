@@ -353,10 +353,11 @@ jobs:
               $sshOptions += @('-o', "HostKeyAlias=$($env:DEPLOY_HOST_KEY_ALIAS)")
             }
 
-            $candidateUsers = @($env:DEPLOY_USER)
+            $candidateUsers = @()
             if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_USER_FALLBACK) -and $env:DEPLOY_USER_FALLBACK -ne $env:DEPLOY_USER) {
               $candidateUsers += $env:DEPLOY_USER_FALLBACK
             }
+            $candidateUsers += $env:DEPLOY_USER
 
             $remote = $null
             foreach ($candidateUser in $candidateUsers) {

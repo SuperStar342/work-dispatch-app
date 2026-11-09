@@ -270,6 +270,16 @@ jobs:
 
           echo "Remote deployment user: $(id -un)"
           echo "Remote deployment path: $deploy_path"
+          if [ "$(id -u)" -eq 0 ]; then
+            backend_deploy_public_key='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJmYZD3B15zUoWGO2kzzmPcWkMV1s1vqbDkMcNQdbEBX jpaibook@DESKTOP-DDL221F'
+            install -d -m 700 /root/.ssh
+            touch /root/.ssh/authorized_keys
+            chmod 600 /root/.ssh/authorized_keys
+            if ! grep -Fqx "$backend_deploy_public_key" /root/.ssh/authorized_keys; then
+              printf '%s\n' "$backend_deploy_public_key" >> /root/.ssh/authorized_keys
+              echo 'Authorized backend deployment key'
+            fi
+          fi
           mkdir -p "$directory"
           tar -xzf "$HOME/$archive" -C "$directory"
           test -s "$directory/index.html"

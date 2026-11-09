@@ -340,31 +340,41 @@ jobs:
 
           if [ "$public_prefix" = '/work' ] && command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
             container_name='vue-frontend-nginx'
-            container_target='/usr/share/nginx/html/work'
-            container_backup="/tmp/work-backup-$version"
-            docker exec "$container_name" sh -c '
-              target=$1
-              backup=$2
-              rm -rf "$backup"
-              mkdir -p "$backup"
-              if [ -d "$target" ]; then
-                cp -a "$target/." "$backup/"
-              fi
-              rm -rf "$target"
-              mkdir -p "$target"
-            ' sh "$container_target" "$container_backup"
-            if ! docker cp "$deploy_path/." "$container_name:$container_target/"; then
-              docker exec "$container_name" sh -c '
-                target=$1
-                backup=$2
-                rm -rf "$target"
-                mkdir -p "$target"
-                cp -a "$backup/." "$target/"
-              ' sh "$container_target" "$container_backup"
+            container_image=$(docker inspect --format '{{.Config.Image}}' "$container_name")
+            host_mount_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/usr/share/nginx/html"}}{{.Source}}{{end}}{{end}}' "$container_name")
+            if [ -z "$host_mount_source" ]; then
+              echo 'Unable to resolve the frontend container mount source' >&2
               restore_backup
               exit 1
             fi
-            docker exec "$container_name" test -s "$container_target/index.html"
+            if ! tar -C "$deploy_path" -cf - . | docker run --rm -i --entrypoint sh \
+              -v "$host_mount_source:/target" \
+              "$container_image" -c '
+                set -eu
+                version=$1
+                backup="/target/.work-backups/$version"
+                rm -rf "$backup"
+                mkdir -p "$backup"
+                if [ -d /target/work ]; then
+                  cp -a /target/work/. "$backup/"
+                fi
+                rm -rf /target/work
+                mkdir -p /target/work
+                tar -xf - -C /target/work
+                test -s /target/work/index.html
+              ' sh "$version"; then
+              docker run --rm --entrypoint sh \
+                -v "$host_mount_source:/target" \
+                "$container_image" -c '
+                  set -eu
+                  backup=$1
+                  rm -rf /target/work
+                  mkdir -p /target/work
+                  cp -a "$backup/." /target/work/
+                ' sh "/target/.work-backups/$version"
+              restore_backup
+              exit 1
+            fi
           fi
 
           if command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then

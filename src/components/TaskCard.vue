@@ -18,6 +18,10 @@
       </view>
     </view>
     <text class="sub">{{ subLine }}</text>
+    <view class="dates">
+      <text>{{ t('task.dispatchDate') }} {{ task.wtDate ? dateOnly(task.wtDate) : '--' }}</text>
+      <text>{{ t('task.planEndDate') }} {{ task.planEndDate ? dateOnly(task.planEndDate) : '--' }}</text>
+    </view>
     <text class="price">{{ priceLine }}</text>
     <view class="foot">
       <view class="progress-col">
@@ -60,6 +64,7 @@ const process = computed(() => props.task.prcName || props.task.prcCode)
 const quickCode = computed(() => String(props.task.quickCode || '').trim())
 const materialName = computed(() => String(props.task.materialName || '').trim())
 const timed = computed(() => isTimeWage(props.task.pWageType))
+const dateOnly = (value: string) => value.slice(0, 10)
 const title = computed(() => {
   const name = props.task.goodsName
   const spec = props.task.sizeDesc && props.task.sizeDesc !== name ? props.task.sizeDesc : ''
@@ -194,6 +199,15 @@ const onAct = () => {
 }
 .price {
   margin-top: 6rpx;
+  color: var(--color-text-secondary);
+}
+.dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx 24rpx;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.4;
   color: var(--color-text-secondary);
 }
 .foot {

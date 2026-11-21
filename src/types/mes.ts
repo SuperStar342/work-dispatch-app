@@ -22,6 +22,10 @@ export type MyTask = {
   fnQty: number
   planQty: number
   pendingQty: number
+  /** 派工单日期 */
+  wtDate?: string
+  /** 工单计划完工日期 */
+  planEndDate?: string
   cFlag?: string
   finishFlag?: string
   status: TaskStatus

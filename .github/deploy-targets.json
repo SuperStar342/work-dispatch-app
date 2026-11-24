@@ -1,0 +1,8 @@
+{
+  "push": ["webdock-vps"],
+  "targets": [
+    { "name": "webdock-vps" },
+    { "name": "product-server" },
+    { "name": "downstairs-server" }
+  ]
+}

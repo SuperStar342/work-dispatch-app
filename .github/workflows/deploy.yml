@@ -1,15 +1,23 @@
-name: Deploy H5 to intranet server
+# 报工 H5 部署：Ubuntu 构建 → 临时 Release 传包（不占 Artifact 配额）→ 内网 Windows Runner
+# 逐台 SSH 发布并确认 Nginx 返回新版本 → 删除临时 Release。
+# 服务器清单见 .github/deploy-targets.json；地址、用户、目录等在各 Environment 的变量里。
+name: 报工 H5 部署
 
 on:
   push:
     branches: [main]
-
   workflow_dispatch:
     inputs:
       target:
-        description: "选择部署服务器"
+        description: 部署服务器
         required: true
-        type: environment
+        default: webdock-vps
+        type: choice
+        options: [webdock-vps, product-server, downstairs-server, all]
+      check_only:
+        description: 只测试 SSH 连通性，不构建不部署
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,453 +26,134 @@ concurrency:
   group: work-dispatch-h5
   cancel-in-progress: false
 
+env:
+  PACKAGE: work-dispatch-h5.tar.gz
+  RELEASE_TAG: ci-h5-${{ github.run_id }}
+  CHECK_ONLY: ${{ inputs.check_only == true }}
+
 jobs:
   build:
-    name: Build H5
+    name: 构建 H5
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
     env:
-      # AppKey is the public client identifier required by dd.requestAuthCode.
-      # AppSecret must remain server-side and must never be added here.
+      # AppKey 是 dd.requestAuthCode 需要的公开客户端标识；AppSecret 只在服务端，不能写在这里。
       VITE_DINGTALK_CLIENT_ID: ding6klbziftyuowibuu
-
+      VITE_APP_BASE_URL: /api
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Setup pnpm
+      - name: 选择部署服务器
+        id: targets
+        env:
+          REQUESTED: ${{ inputs.target || vars.DEFAULT_DEPLOY_ENV }}
+        run: bash scripts/ci/select-targets.sh
+
+      - name: 安装 pnpm
+        if: env.CHECK_ONLY != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      - name: Setup Node
+      - name: 安装 Node.js
+        if: env.CHECK_ONLY != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
-      - name: Install
+      - name: 安装依赖
+        if: env.CHECK_ONLY != 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Build root H5
-        env:
-          VITE_APP_BASE_URL: /api
-        run: pnpm run build:h5
-
-      - name: Collect root files
-        shell: bash
+      - name: 构建根路径和 /work 子路径两个版本
+        if: env.CHECK_ONLY != 'true'
         run: |
           set -euo pipefail
-          mkdir release-root
-          for dir in dist/build/h5 dist/build/web \
-            unpackage/dist/build/web unpackage/dist/build/h5; do
-            if [ -f "$dir/index.html" ]; then
-              cp -a "$dir/." release-root/
-              break
-            fi
-          done
-          test -s release-root/index.html
-          grep -qE '(src|href)="/assets/' release-root/index.html
-          ! grep -qE '(src|href)="/work/assets/' release-root/index.html
+          collect() {
+            for dir in dist/build/h5 dist/build/web unpackage/dist/build/web unpackage/dist/build/h5; do
+              if [[ -f "$dir/index.html" ]]; then mkdir -p "$1"; cp -a "$dir/." "$1/"; return; fi
+            done
+            echo "::error::找不到构建产物 index.html"; exit 1
+          }
+          pnpm run build:h5
+          collect package/site-root
+          grep -qE '(src|href)="/assets/' package/site-root/index.html
 
-      - name: Build work subpath H5
+          pnpm run build:h5:work
+          collect package/site-work
+          grep -qE '(src|href)="/work/assets/' package/site-work/index.html
+          grep -RqsF "$VITE_DINGTALK_CLIENT_ID" package/site-work/assets
+
+          sed 's/\r$//' scripts/ci/deploy-h5.sh > package/deploy-h5.sh
+          tar -czf "$PACKAGE" -C package .
+
+      - name: 上传部署包到临时 Release
+        if: env.CHECK_ONLY != 'true'
         env:
-          VITE_APP_BASE_URL: /api
-        run: pnpm run build:h5:work
-
-      - name: Collect work subpath files
-        shell: bash
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir release-work
-          for dir in dist/build/h5 dist/build/web \
-            unpackage/dist/build/web unpackage/dist/build/h5; do
-            if [ -f "$dir/index.html" ]; then
-              cp -a "$dir/." release-work/
-              break
-            fi
-          done
-          test -s release-work/index.html
-          grep -qE '(src|href)="/work/assets/' release-work/index.html
-          ! grep -qE '(src|href)="/assets/' release-work/index.html
-          grep -RqsF "$VITE_DINGTALK_CLIENT_ID" release-work/assets
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: h5-${{ github.run_id }}
-          path: |
-            release-root/
-            release-work/
-          if-no-files-found: error
-          retention-days: 3
+          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$RELEASE_TAG" "$PACKAGE" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "$RELEASE_TAG" --notes '临时部署包，部署结束后自动删除。'
 
   deploy:
-    name: Deploy from intranet runner
+    name: 部署 ${{ matrix.name }}
     needs: build
     runs-on: [self-hosted, windows, x64]
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || vars.DEFAULT_DEPLOY_ENV || 'webdock-vps' }}
-
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.build.outputs.matrix) }}
+    environment:
+      name: ${{ matrix.name }}
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          name: h5-${{ github.run_id }}
-          path: release
+          persist-credentials: false
+          sparse-checkout: scripts/ci
 
-      - name: Check deployment environment
-        shell: powershell
+      - name: SSH 发布
+        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         env:
-          # 正式环境曾把外网访问地址写进 SSH 主机，但 Runner 与 known_hosts
-          # 都使用内网服务器。保留环境变量优先级，同时兼容这份旧配置。
-          DEPLOY_HOST: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || vars.DEPLOY_HOST }}
-          DEPLOY_HOST_FALLBACK: ${{ vars.DEPLOY_HOST == '77.46.140.135' && vars.DEPLOY_HOST || '' }}
-          DEPLOY_HOST_KEY_ALIAS: ${{ vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120' || '' }}
-          DEPLOY_USER_FALLBACK: ${{ vars.DEPLOY_HOST == '77.46.140.135' && 'root' || '' }}
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          # 旧配置把外网地址 77.46.140.135 写成了 SSH 主机；Runner 在内网，直接连 192.168.251.120。
+          DEPLOY_HOST: ${{ matrix.host || (vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120') || vars.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+          DEPLOY_USER: ${{ matrix.user || (vars.DEPLOY_HOST == '77.46.140.135' && 'root') || vars.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST_KEY_ALIAS: ${{ (vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120') || '' }}
+          SITE_DIR: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work') || '' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-
-          foreach ($name in 'DEPLOY_HOST', 'DEPLOY_USER', 'DEPLOY_PATH', 'DEPLOY_SSH_KEY', 'DEPLOY_KNOWN_HOSTS') {
-            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
-              throw "$name 为空"
-            }
+          if ($env:CHECK_ONLY -eq 'true') {
+            & .\scripts\ci\deploy.ps1 -CheckOnly
+          }
+          else {
+            if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:SITE_DIR -eq '/') { throw "DEPLOY_PATH 无效: $env:SITE_DIR" }
+            & .\scripts\ci\deploy.ps1 -ReleaseTag $env:RELEASE_TAG -AssetName $env:PACKAGE -Entry deploy-h5.sh -Arguments @($env:SITE_DIR)
           }
 
-          if ($env:DEPLOY_PATH -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:DEPLOY_PATH -eq '/') {
-            throw "DEPLOY_PATH 非法: $($env:DEPLOY_PATH)"
-          }
-
-          $releaseName = if ($env:DEPLOY_PATH.TrimEnd('/') -match '/work$') { 'release-work' } else { 'release-root' }
-          $releasePath = Join-Path 'release' $releaseName
-          $indexPath = Join-Path $releasePath 'index.html'
-          if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
-            throw "构建产物缺少 $indexPath"
-          }
-
-          $indexHtml = Get-Content -LiteralPath $indexPath -Raw
-          if ($releaseName -eq 'release-work' -and $indexHtml -notmatch '(src|href)="/work/assets/') {
-            throw 'work 子路径构建未引用 /work/assets/'
-          }
-          if ($releaseName -eq 'release-root' -and $indexHtml -match '(src|href)="/work/assets/') {
-            throw '根路径构建错误引用了 /work/assets/'
-          }
-
-          foreach ($command in 'tar.exe', 'scp.exe', 'ssh.exe') {
-            if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-              throw "内网 Runner 缺少命令: $command"
-            }
-          }
-
-          $candidateHosts = @($env:DEPLOY_HOST)
-          if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_HOST_FALLBACK) -and $env:DEPLOY_HOST_FALLBACK -ne $env:DEPLOY_HOST) {
-            $candidateHosts += $env:DEPLOY_HOST_FALLBACK
-          }
-
-          $resolvedHost = $null
-          foreach ($candidateHost in $candidateHosts) {
-            $connection = Test-NetConnection -ComputerName $candidateHost -Port 22 -WarningAction SilentlyContinue
-            if ($connection.TcpTestSucceeded) {
-              $resolvedHost = $candidateHost
-              break
-            }
-            Write-Warning "SSH endpoint unavailable: ${candidateHost}:22"
-          }
-
-          if ([string]::IsNullOrWhiteSpace($resolvedHost)) {
-            throw "Runner 无法连接任一 SSH 地址: $($candidateHosts -join ', ')"
-          }
-
-          "DEPLOY_HOST=$resolvedHost" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "DEPLOY_HOST_KEY_ALIAS=$($env:DEPLOY_HOST_KEY_ALIAS)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "DEPLOY_USER_FALLBACK=$($env:DEPLOY_USER_FALLBACK)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "SSH connectivity check passed: ${resolvedHost}:22"
-
-      - name: Upload and deploy
-        shell: powershell
+  # 部署成功才删除临时 Release；失败时保留，方便直接“Re-run failed jobs”，
+  # 遗留的临时 Release 由每天的 ci-cleanup 工作流在一天后删除。
+  cleanup:
+    name: 删除临时 Release
+    needs: [build, deploy]
+    if: always() && needs.deploy.result == 'success' && inputs.check_only != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 删除本次运行的临时 Release
         env:
-          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work' || '') }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-
-          function Invoke-NativeCommand {
-            param(
-              [Parameter(Mandatory = $true)]
-              [scriptblock] $Command,
-              [Parameter(Mandatory = $true)]
-              [string] $Description
-            )
-
-            & $Command
-            if ($LASTEXITCODE -ne 0) {
-              throw "$Description 失败，退出码: $LASTEXITCODE"
-            }
-          }
-
-          $tempDirectory = Join-Path $env:RUNNER_TEMP "work-dispatch-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT)"
-          $keyPath = Join-Path $tempDirectory 'deploy_key'
-          $knownHostsPath = Join-Path $tempDirectory 'known_hosts'
-          $archiveName = "h5-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT).tar.gz"
-          $archivePath = Join-Path $tempDirectory $archiveName
-          $scriptName = "deploy-h5-$($env:GITHUB_RUN_ID)-$($env:GITHUB_RUN_ATTEMPT).sh"
-          $scriptPath = Join-Path $tempDirectory $scriptName
-          $releaseName = if ($env:DEPLOY_PATH.TrimEnd('/') -match '/work$') { 'release-work' } else { 'release-root' }
-          $releasePath = Join-Path 'release' $releaseName
-
-          New-Item -ItemType Directory -Path $tempDirectory -Force | Out-Null
-
-          try {
-            $keyContent = $env:DEPLOY_SSH_KEY.Trim() -replace '\\r', '' -replace '\\n', "`n" -replace "`r", ''
-            if (-not $keyContent.EndsWith("`n")) {
-              $keyContent += "`n"
-            }
-
-            [IO.File]::WriteAllText($keyPath, $keyContent, [Text.UTF8Encoding]::new($false))
-            [IO.File]::WriteAllText($knownHostsPath, ($env:DEPLOY_KNOWN_HOSTS -replace "`r", ''))
-
-            $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-            & icacls.exe $keyPath /inheritance:r | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw '设置 SSH 私钥 ACL 失败' }
-            & icacls.exe $keyPath /grant:r "${currentUser}:(R)" | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw '授权 SSH 私钥读取权限失败' }
-
-            $deployPublicKey = (& ssh-keygen.exe -y -f $keyPath 2>$null) -join ''
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($deployPublicKey)) {
-              throw 'DEPLOY_SSH_KEY 无法派生公钥，请重新保存有效的 OpenSSH 私钥'
-            }
-
-            $remoteScript = @'
-          set -euo pipefail
-
-          archive="$1"
-          deploy_path="${2%/}"
-          base="$HOME/work-h5"
-          version="v$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID:-manual}"
-          directory="$base/releases/$version"
-          backup="$base/backups/$version"
-          has_backup=false
-
-          cleanup() {
-            rm -f "$HOME/$archive" "$0"
-          }
-          trap cleanup EXIT
-
-          report_error() {
-            local exit_code=$?
-            echo "REMOTE_DEPLOY_ERROR line=$1 exit=$exit_code command=$2" >&2
-            exit "$exit_code"
-          }
-          trap 'report_error "$LINENO" "$BASH_COMMAND"' ERR
-
-          if [ -z "$deploy_path" ] || [ "$deploy_path" = / ]; then
-            echo "Invalid deployment path: $deploy_path" >&2
-            exit 1
-          fi
-
-          echo "Remote deployment user: $(id -un)"
-          echo "Remote deployment path: $deploy_path"
-          mkdir -p "$directory"
-          tar -xzf "$HOME/$archive" -C "$directory"
-          test -s "$directory/index.html"
-
-          # 旧版本可能由 root 手工发布，导致 deploy 用户无法清理带哈希的资源文件。
-          # 仅在目标目录存在不可写内容时修正归属，并要求服务器已配置免密 sudo。
-          if [ -d "$deploy_path" ] && {
-            [ ! -w "$deploy_path" ] ||
-            find "$deploy_path" -mindepth 1 ! -writable -print -quit | grep -q .
-          }; then
-            if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true; then
-              echo "Deployment path contains files not writable by $(id -un), and passwordless sudo is unavailable: $deploy_path" >&2
-              exit 1
-            fi
-            echo "Repairing deployment ownership for $(id -un): $deploy_path"
-            sudo -n chown -R "$(id -u):$(id -g)" "$deploy_path"
-          fi
-
-          clear_directory() {
-            local target=$1
-            find "$target" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          }
-
-          restore_backup() {
-            if [ "$has_backup" = true ]; then
-              mkdir -p "$deploy_path"
-              clear_directory "$deploy_path"
-              cp -a "$backup/." "$deploy_path/"
-            fi
-          }
-
-          if [ -d "$deploy_path" ]; then
-            mkdir -p "$backup"
-            cp -a "$deploy_path/." "$backup/"
-            has_backup=true
-          fi
-
-          mkdir -p "$deploy_path"
-          if ! clear_directory "$deploy_path"; then
-            restore_backup
-            exit 1
-          fi
-          if ! cp -a "$directory/." "$deploy_path/"; then
-            restore_backup
-            exit 1
-          fi
-
-          verify_release() {
-            test -s "$deploy_path/index.html" || return 1
-            while IFS= read -r asset; do
-              relative="${asset#/}"
-              if [[ "$relative" == work/* ]]; then
-                relative="${relative#work/}"
-              fi
-              test -s "$deploy_path/$relative" || return 1
-            done < <(grep -oE '(src|href)="/[^"]+\.(js|css)"' "$deploy_path/index.html" | sed -E 's/^(src|href)="([^"]+)"/\2/')
-          }
-
-          if ! verify_release; then
-            restore_backup
-            exit 1
-          fi
-
-          public_prefix=''
-          if [[ "$deploy_path" == */work ]]; then
-            public_prefix='/work'
-          fi
-
-          if [ "$public_prefix" = '/work' ] && command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
-            container_name='vue-frontend-nginx'
-            restart_frontend_container=true
-            container_image=$(docker inspect --format '{{.Config.Image}}' "$container_name")
-            host_mount_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/usr/share/nginx/html"}}{{.Source}}{{end}}{{end}}' "$container_name")
-            if [ -z "$host_mount_source" ]; then
-              echo 'Unable to resolve the frontend container mount source' >&2
-              restore_backup
-              exit 1
-            fi
-            if ! tar -C "$directory" -cf - . | docker run --rm -i --entrypoint sh \
-              -v "$host_mount_source:/target" \
-              "$container_image" -c '
-                set -eu
-                version=$1
-                backup="/target/.work-backups/$version"
-                rm -rf "$backup"
-                mkdir -p "$backup"
-                if [ -d /target/work ]; then
-                  cp -a /target/work/. "$backup/"
-                fi
-                rm -rf /target/work
-                mkdir -p /target/work
-                tar -xf - -C /target/work
-                test -s /target/work/index.html
-              ' sh "$version"; then
-              docker run --rm --entrypoint sh \
-                -v "$host_mount_source:/target" \
-                "$container_image" -c '
-                  set -eu
-                  backup=$1
-                  rm -rf /target/work
-                  mkdir -p /target/work
-                  cp -a "$backup/." /target/work/
-                ' sh "/target/.work-backups/$version"
-              restore_backup
-              exit 1
-            fi
-          fi
-
-          if command -v docker >/dev/null 2>&1 && docker inspect vue-frontend-nginx >/dev/null 2>&1; then
-            if [ "${restart_frontend_container:-false}" = true ]; then
-              docker restart vue-frontend-nginx >/dev/null
-            fi
-            docker exec vue-frontend-nginx nginx -t
-          fi
-
-          expected_entry=$(grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" "$deploy_path/index.html" | head -n 1 || true)
-          served_index=''
-          for attempt in {1..10}; do
-            if served_index=$(curl -fsS "http://127.0.0.1:8081${public_prefix}/?release=$version"); then
-              break
-            fi
-            sleep 1
-          done
-          actual_entry=$(printf '%s' "$served_index" | grep -oE "src=\"${public_prefix}/assets/index-[^\"]+\\.js\"" | head -n 1 || true)
-          echo "Expected entry: $expected_entry"
-          echo "Served entry:   $actual_entry"
-          if [ -z "$expected_entry" ] || [ "$actual_entry" != "$expected_entry" ]; then
-            echo "Nginx is not serving the deployed work directory: $deploy_path" >&2
-            if command -v docker >/dev/null 2>&1; then
-              if docker inspect vue-frontend-nginx >/dev/null 2>&1; then
-                echo '=== vue-frontend-nginx effective config ==='
-                docker exec vue-frontend-nginx nginx -T 2>&1 | grep -E '(^|[[:space:]])(listen|root|alias|location|proxy_pass)[[:space:]]'
-                echo '=== vue-frontend-nginx index files ==='
-                docker exec vue-frontend-nginx sh -c 'find /usr/share/nginx/html -maxdepth 3 -name index.html -print -exec grep -oE '\''src="[^"]+index-[^"]+\.js"'\'' {} \;'
-              fi
-              docker ps --format 'Container={{.Names}} Ports={{.Ports}}'
-              for container in $(docker ps --format '{{.Names}}'); do
-                docker inspect --format 'Container={{.Name}}{{range .Mounts}}{{println}}{{.Source}} -> {{.Destination}}{{end}}' "$container"
-              done
-            fi
-            exit 1
-          fi
-
-          echo "Deployed: $version -> $deploy_path"
-          '@
-            $remoteScript = $remoteScript -replace "`r`n", "`n"
-            [IO.File]::WriteAllText($scriptPath, $remoteScript, [Text.UTF8Encoding]::new($false))
-
-            Invoke-NativeCommand -Description '压缩部署产物' -Command {
-              & tar.exe -czf $archivePath -C $releasePath .
-            }
-
-            $sshOptions = @(
-              '-i', $keyPath,
-              '-o', "UserKnownHostsFile=$knownHostsPath",
-              '-o', 'StrictHostKeyChecking=yes',
-              '-o', 'BatchMode=yes',
-              '-o', 'ConnectTimeout=15'
-            )
-            if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_HOST_KEY_ALIAS)) {
-              $sshOptions += @('-o', "HostKeyAlias=$($env:DEPLOY_HOST_KEY_ALIAS)")
-            }
-
-            $candidateUsers = @()
-            if (-not [string]::IsNullOrWhiteSpace($env:DEPLOY_USER_FALLBACK) -and $env:DEPLOY_USER_FALLBACK -ne $env:DEPLOY_USER) {
-              $candidateUsers += $env:DEPLOY_USER_FALLBACK
-            }
-            $candidateUsers += $env:DEPLOY_USER
-
-            $remote = $null
-            foreach ($candidateUser in $candidateUsers) {
-              & ssh.exe @sshOptions "${candidateUser}@$($env:DEPLOY_HOST)" 'true'
-              if ($LASTEXITCODE -eq 0) {
-                $remote = "${candidateUser}@$($env:DEPLOY_HOST)"
-                break
-              }
-              Write-Warning "SSH key authentication failed for user: $candidateUser"
-            }
-            if ([string]::IsNullOrWhiteSpace($remote)) {
-              Write-Host "DEPLOY_PUBLIC_KEY=$deployPublicKey"
-              throw "SSH 私钥未获任一部署用户授权: $($candidateUsers -join ', ')"
-            }
-
-            Invoke-NativeCommand -Description '上传部署产物' -Command {
-              & scp.exe @sshOptions $archivePath $scriptPath "${remote}:~/"
-            }
-
-            Invoke-NativeCommand -Description '执行远程部署' -Command {
-              & ssh.exe @sshOptions $remote "GITHUB_RUN_ID='$($env:GITHUB_RUN_ID)' bash ~/$scriptName '$archiveName' '$($env:DEPLOY_PATH)'"
-            }
-
-            Write-Host "Deployment completed: $remote"
-          }
-          finally {
-            if (Test-Path -LiteralPath $tempDirectory) {
-              [IO.Directory]::Delete($tempDirectory, $true)
-            }
-          }
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || echo '没有需要删除的临时 Release'

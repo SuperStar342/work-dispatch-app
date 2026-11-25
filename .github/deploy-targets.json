@@ -1,8 +1,27 @@
 {
-  "push": ["webdock-vps"],
+  "default": ["server-120"],
   "targets": [
-    { "name": "webdock-vps" },
-    { "name": "product-server" },
-    { "name": "downstairs-server" }
+    {
+      "name": "server-120",
+      "role": "生产",
+      "host": "192.168.251.120",
+      "user": "root",
+      "hostKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILqU1tthVrMOt9YyIIdcqU+B12y92Pb9vlRpmHl0pejL",
+      "dir": "/var/www/myapp/dist/work"
+    },
+    {
+      "name": "server-150",
+      "role": "测试",
+      "host": "192.168.251.150",
+      "user": "root",
+      "hostKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILqU1tthVrMOt9YyIIdcqU+B12y92Pb9vlRpmHl0pejL",
+      "dir": "/var/www/myapp/dist/work"
+    },
+    {
+      "name": "myvps",
+      "role": "VPS",
+      "host": "45.148.30.143",
+      "hostKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB9nmSQ6KHA7mIJ2FvK5jmBkjGJW5VKrwozSMClNeetC"
+    }
   ]
 }

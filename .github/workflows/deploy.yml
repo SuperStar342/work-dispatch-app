@@ -1,19 +1,21 @@
 # 报工 H5 部署：Ubuntu 构建 → 临时 Release 传包（不占 Artifact 配额）→ 内网 Windows Runner
 # 逐台 SSH 发布并确认 Nginx 返回新版本 → 删除临时 Release。
-# 服务器清单见 .github/deploy-targets.json；地址、用户、目录等在各 Environment 的变量里。
+# 服务器清单见 .github/deploy-targets.json；默认部署的服务器由仓库变量 DEPLOY_TARGETS 设置。
 name: 报工 H5 部署
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       target:
-        description: 部署服务器
+        description: 部署服务器（default = 默认服务器，未设置仓库变量 DEPLOY_TARGETS 时为生产 server-120；server-150 为测试）
         required: true
-        default: webdock-vps
+        default: default
         type: choice
-        options: [webdock-vps, product-server, downstairs-server, all]
+        options: [default, server-120, server-150, myvps, all]
       check_only:
         description: 只测试 SSH 连通性，不构建不部署
         type: boolean
@@ -23,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: work-dispatch-h5
+  group: h5-deploy-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -52,7 +54,8 @@ jobs:
       - name: 选择部署服务器
         id: targets
         env:
-          REQUESTED: ${{ inputs.target || vars.DEFAULT_DEPLOY_ENV }}
+          REQUESTED: ${{ inputs.target }}
+          DEFAULT_TARGETS: ${{ vars.DEPLOY_TARGETS }}
         run: bash scripts/ci/select-targets.sh
 
       - name: 安装 pnpm
@@ -95,7 +98,7 @@ jobs:
           tar -czf "$PACKAGE" -C package .
 
       - name: 上传部署包到临时 Release
-        if: env.CHECK_ONLY != 'true'
+        if: env.CHECK_ONLY != 'true' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -107,7 +110,8 @@ jobs:
   deploy:
     name: 部署 ${{ matrix.name }}
     needs: build
-    runs-on: [self-hosted, windows, x64]
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -115,6 +119,9 @@ jobs:
       matrix: ${{ fromJSON(needs.build.outputs.matrix) }}
     environment:
       name: ${{ matrix.name }}
+    concurrency:
+      group: h5-deploy-${{ matrix.name }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,21 +132,28 @@ jobs:
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
-          # 旧配置把外网地址 77.46.140.135 写成了 SSH 主机；Runner 在内网，直接连 192.168.251.120。
-          DEPLOY_HOST: ${{ matrix.host || (vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120') || vars.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
-          DEPLOY_USER: ${{ matrix.user || (vars.DEPLOY_HOST == '77.46.140.135' && 'root') || vars.DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          # ---- 服务器连接（三个仓库相同）：地址在 deploy-targets.json，密钥在 Secret ----
+          DEPLOY_HOST: ${{ matrix.host }}
+          DEPLOY_PORT: ${{ matrix.port || vars.DEPLOY_PORT || '22' }}
+          DEPLOY_USER: ${{ matrix.user || vars.DEPLOY_USER || secrets.DEPLOY_USER }}
+          DEPLOY_AUTH: ${{ matrix.auth || 'key' }}
+          # DEPLOY_SSH_KEY 是旧名称，过渡期间兼容。
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY || secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
+          DEPLOY_HOST_KEY: ${{ matrix.hostKey }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_HOST_KEY_ALIAS: ${{ (vars.DEPLOY_HOST == '77.46.140.135' && '192.168.251.120') || '' }}
-          SITE_DIR: ${{ vars.DEPLOY_PATH || (vars.DEPLOY_HOST == '77.46.140.135' && '/var/www/myapp/dist/work') || '' }}
+          DEPLOY_FP: ${{ vars.DEPLOY_FP }}
+          # ---- 本仓库的部署参数 ----
+          SITE_DIR: ${{ matrix.dir || vars.DEPLOY_PATH }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:CHECK_ONLY -eq 'true') {
             & .\scripts\ci\deploy.ps1 -CheckOnly
           }
           else {
-            if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:SITE_DIR -eq '/') { throw "DEPLOY_PATH 无效: $env:SITE_DIR" }
+            if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:SITE_DIR -eq '/') {
+              throw "没有发布目录：请在 deploy-targets.json 给 $env:DEPLOY_HOST 写 dir，或在 Environment 设置变量 DEPLOY_PATH"
+            }
             & .\scripts\ci\deploy.ps1 -ReleaseTag $env:RELEASE_TAG -AssetName $env:PACKAGE -Entry deploy-h5.sh -Arguments @($env:SITE_DIR)
           }
 

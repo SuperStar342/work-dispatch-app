@@ -1,0 +1,83 @@
+# 每天清理 GitHub Actions 产生的运行记录、日志、产物、缓存和临时 Release，
+# 防止存储配额被占满导致上传失败。三个仓库使用同一份文件。
+name: 清理 Actions 存储
+
+on:
+  schedule:
+    - cron: '30 19 * * *'   # 北京时间每天 03:30
+  workflow_dispatch:
+    inputs:
+      keep_days:
+        description: 保留最近几天的运行记录和日志
+        required: true
+        default: '7'
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: ci-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: 清理过期记录
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      KEEP_DAYS: ${{ inputs.keep_days || '7' }}
+      KEEP_RUNS: '20'          # 无论多旧，始终保留最新 20 次运行，方便排查
+    steps:
+      - name: 删除过期运行记录（连同日志）
+        run: |
+          set -euo pipefail
+          [[ "$KEEP_DAYS" =~ ^[0-9]+$ ]] || { echo "::error::keep_days 必须是数字"; exit 1; }
+          cutoff="$(date -u -d "-${KEEP_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)"
+          # 先完整列出再删除，避免边翻页边删除导致漏删。列表按时间从新到旧。
+          gh api --paginate "repos/$REPO/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | select(.status == "completed") | "\(.id) \(.created_at)"' > runs.txt
+          tail -n +"$((KEEP_RUNS + 1))" runs.txt | while read -r id created; do
+            [[ "$created" < "$cutoff" ]] || continue
+            gh api -X DELETE "repos/$REPO/actions/runs/$id" --silent || echo "跳过运行 $id"
+          done
+          echo "共 $(wc -l < runs.txt) 条已完成运行，已删除 $cutoff 之前的旧记录（保留最新 $KEEP_RUNS 条）"
+
+      - name: 删除构建产物（Artifacts）
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)"
+          gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | "\(.id) \(.created_at)"' > artifacts.txt
+          while read -r id created; do
+            [[ "$created" < "$cutoff" ]] || continue
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" --silent || echo "跳过产物 $id"
+          done < artifacts.txt
+          echo "检查了 $(wc -l < artifacts.txt) 个产物"
+
+      - name: 删除遗留的临时部署 Release
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d '-1 day' +%Y-%m-%dT%H:%M:%SZ)"
+          # 只处理部署流程创建的 ci-* 预发布版本，正式 Release 不受影响。
+          gh release list --repo "$REPO" --limit 500 --json tagName,createdAt,isPrerelease \
+            --jq '.[] | select(.isPrerelease and (.tagName | startswith("ci-"))) | "\(.tagName) \(.createdAt)"' > releases.txt
+          while read -r tag created; do
+            [[ "$created" < "$cutoff" ]] || continue
+            gh release delete "$tag" --repo "$REPO" --cleanup-tag --yes || echo "跳过 Release $tag"
+          done < releases.txt
+          echo "检查了 $(wc -l < releases.txt) 个临时 Release"
+
+      - name: 删除长期未使用的缓存
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d '-7 days' +%Y-%m-%dT%H:%M:%SZ)"
+          gh api --paginate "repos/$REPO/actions/caches?per_page=100" \
+            --jq '.actions_caches[] | "\(.id) \(.last_accessed_at)"' > caches.txt
+          while read -r id accessed; do
+            [[ "$accessed" < "$cutoff" ]] || continue
+            gh api -X DELETE "repos/$REPO/actions/caches/$id" --silent || echo "跳过缓存 $id"
+          done < caches.txt
+          echo "检查了 $(wc -l < caches.txt) 个缓存"

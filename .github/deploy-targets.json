@@ -1,0 +1,22 @@
+{
+  "_说明": "服务器地址、用户、主机公钥和私钥统一在部署 Runner 的 C:\\ProgramData\\ci-deploy\\servers.json 中配置；这里只写服务器名字和本仓库的部署参数。",
+  "default": [
+    "server-120"
+  ],
+  "targets": [
+    {
+      "name": "server-120",
+      "role": "生产",
+      "dir": "/var/www/myapp/dist/work"
+    },
+    {
+      "name": "server-150",
+      "role": "测试",
+      "dir": "/var/www/myapp/dist/work"
+    },
+    {
+      "name": "myvps",
+      "role": "VPS"
+    }
+  ]
+}

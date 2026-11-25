@@ -20,7 +20,7 @@ GitHub Environment 按服务器命名，三个仓库使用同一套名字：
 | `server-150` | 测试 | 192.168.251.150 | blade-system | 网站根目录 | `/var/www/myapp/dist/work` |
 | `myvps` | VPS | 45.148.30.143 | blade-system | 网站根目录 | 需设置发布目录 |
 
-服务器地址、SSH 用户、主机公钥写在各仓库的 `.github/deploy-targets.json`；只有 SSH 私钥（和密码）放在 GitHub Secret。
+服务器地址、SSH 用户、主机公钥和私钥集中在部署 Runner 上配置，见下方“服务器集中配置”。
 注意：`server-150` 是由 `server-120` 克隆的虚拟机，两台的 SSH 主机公钥相同。后端的 Spring Profile 按服务器上实际配置填写：120 为 `test`，150 为 `prod`。
 
 ## 默认部署与手动选择
@@ -34,28 +34,46 @@ GitHub Environment 按服务器命名，三个仓库使用同一套名字：
 - PR：只构建，检查能否编译，不部署。
 - 建议先手动部署到测试 `server-150`，确认没问题后再合并到 `main`，自动部署生产。
 
-## GitHub 一次性配置
+## 服务器集中配置（所有仓库共用，只改一处）
 
-在每个仓库的 Settings 中：
+服务器的地址、端口、SSH 用户、主机公钥和私钥**只在部署 Runner 这台电脑上配置一次**，所有仓库的部署都按服务器名字读取：
 
-1. **Secrets and variables → Actions → Repository secrets**：设置 `DEPLOY_KEY`，填 SSH 私钥全文。`server-120` 和 `server-150` 都用 `root` 登录，本机的 `work_dispatch_deploy_rsa` 两台都能登录，三个仓库都用它即可。某台服务器要用不同的私钥时，在该 Environment 里再建一个同名 Secret `DEPLOY_KEY`，会覆盖仓库级的值。
-2. **SSH 用户**：`myvps` 在 Repository variables 或 Environment `myvps` 的 variables 里设置 `DEPLOY_USER`（也可以在 `deploy-targets.json` 里写 `"user"`）。
-3. **默认服务器（可选）**：Repository variables 中设置 `DEPLOY_TARGETS`，不设置就是 `server-120`。
-4. **Environments**：第一次部署到某台服务器时 GitHub 会自动创建同名 Environment。生产 `server-120` 是 push 后自动部署的目标；如果希望每次部署都要人工确认，可在 Settings → Environments 给它开启 *Required reviewers*。
-5. 新流程验证通过后，可以删除旧的 Environment：`test`、`production`、`webdock-vps`、`product-server`、`downstairs-server`。
+```
+C:\ProgramData\ci-deploy\
+  servers.json   服务器清单（名字 → 地址、端口、用户、主机公钥）
+  id_deploy      部署用 SSH 私钥
+```
+
+- **服务器换 IP**：只改 `servers.json` 里对应服务器的 `host`，所有仓库下次部署自动生效。
+- **换私钥**：只替换 `id_deploy`。某台服务器要用别的私钥时，在它的配置里加 `"keyFile": "其他文件名"`。
+- **GitHub 上不需要配置任何部署 Secret**，新增仓库也不用。
+- 目录权限只开放给 SYSTEM、管理员、当前用户和 Runner 服务账户（NETWORK SERVICE，只读）。这台电脑重装或更换前，记得备份这个目录。
+- `servers.json` 示例：
+  ```json
+  { "servers": {
+      "server-120": { "role": "生产", "host": "192.168.251.120", "port": 22, "user": "root",
+                      "hostKey": "ssh-ed25519 AAAA..." } } }
+  ```
+  `hostKey` 可以在能连上服务器的电脑上用 `ssh-keyscan -t ed25519 <IP>` 读取。
+
+各仓库的 `.github/deploy-targets.json` 只写服务器名字和本仓库的部署参数（目录、脚本等），不写 IP。
+
+## 回滚到上一版
+
+每次部署成功后，服务器上都会保留"部署前的版本"：后端保留上一版镜像，前端和报工 H5 保留上一版文件。
+
+- **怎么回滚**：Actions → 部署工作流 → Run workflow → 选择服务器 → 勾选 `rollback`。不重新构建，通常一两分钟完成。
+- 回滚撤销的是该服务器上**最近一次**部署；再执行一次 `rollback` 会切回来。
+- 回滚同样会检查：后端确认服务启动成功，前端确认 Nginx 返回的是切换后的版本，失败时恢复到回滚前的状态。
+- 新流程在某台服务器上至少成功部署一次后，才有可回滚的版本。
 
 ## 增加一台服务器
 
-1. 在用到它的仓库的 `.github/deploy-targets.json` 里加一条，例如：
-   ```json
-   { "name": "server-200", "host": "192.168.251.200", "user": "deploy",
-     "hostKey": "ssh-ed25519 AAAA..." }
-   ```
-   `hostKey` 可以在能连上服务器的电脑上用 `ssh-keyscan -t ed25519 192.168.251.200` 读取。
-2. 三个仓库工作流 `target` 的 `options` 里加上 `server-200`，保持三个仓库一致。
-3. 把 `DEPLOY_KEY` 对应的公钥加到这台服务器，然后手动运行一次 `check_only` 确认能连通。
+1. 在 Runner 的 `servers.json` 里加一条（名字、地址、用户、主机公钥），并把 `id_deploy` 对应的公钥加到这台服务器部署用户的 `~/.ssh/authorized_keys`。
+2. 在需要部署到它的仓库的 `.github/deploy-targets.json` 里加 `{ "name": "新名字", ... }`。
+3. 各仓库工作流 `target` 的 `options` 里加上这个名字（保持各仓库一致），然后手动运行一次 `check_only` 确认能连通。
 
-本仓库额外说明：发布目录写在 JSON 的 `"dir"`；`myvps` 还没有写，部署前在 JSON 里补上或在 Environment `myvps` 设置变量 `DEPLOY_PATH`。旧的 Secret 名称 `DEPLOY_SSH_KEY` 在过渡期间仍可使用。
+本仓库额外说明：发布目录写在 JSON 的 `"dir"`；`myvps` 还没有写，部署前在 JSON 里补上或在 Environment `myvps` 设置变量 `DEPLOY_PATH`。
 
 ## 手动部署（CI 不可用时）
 
@@ -68,10 +86,7 @@ Copy-Item -Recurse -Force dist\build\h5\* package\site-work\
 Copy-Item scripts\ci\deploy-h5.sh package\
 tar -czf work-dispatch-h5.tar.gz -C package .
 
-$env:DEPLOY_HOST = '192.168.251.120'
-$env:DEPLOY_USER = 'root'
-$env:DEPLOY_KEY_FILE = "$HOME\.ssh\work_dispatch_deploy_rsa"
-$env:DEPLOY_HOST_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILqU1tthVrMOt9YyIIdcqU+B12y92Pb9vlRpmHl0pejL'
+$env:DEPLOY_SERVER = 'server-120'   # 地址和私钥从 C:\ProgramData\ci-deploy 读取
 .\scripts\ci\deploy.ps1 -Package .\work-dispatch-h5.tar.gz -Entry deploy-h5.sh -Arguments @('/var/www/myapp/dist/work')
 ```
 

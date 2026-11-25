@@ -5,8 +5,13 @@
   work-dispatch-app; GitHub Actions and manual deployments both use it.
 
 .DESCRIPTION
-  Connection settings come from environment variables, so the same script works
-  in a workflow (GitHub Secrets/Variables) and from a local PowerShell window:
+  Normal use (all workflows): set DEPLOY_SERVER to a server name. Address, port,
+  user, host key and private key are then read from the runner's central config
+  %ProgramData%\ci-deploy\servers.json and %ProgramData%\ci-deploy\id_deploy
+  (override the folder with CI_DEPLOY_HOME). Changing a server IP means editing
+  that one file; no repository or GitHub secret needs to change.
+
+  Without DEPLOY_SERVER, connection settings come from environment variables:
 
     DEPLOY_HOST            server address (required)
     DEPLOY_PORT            SSH port, default 22
@@ -94,18 +99,51 @@ function ConvertTo-ShellWord([string] $Value) {
 }
 
 # ---------- settings ----------
-$serverHost = Get-Setting 'DEPLOY_HOST'
-$port = Get-Setting 'DEPLOY_PORT' '22'
-$user = Get-Setting 'DEPLOY_USER'
-$auth = (Get-Setting 'DEPLOY_AUTH' 'key').ToLowerInvariant()
-$hostKey = Get-Setting 'DEPLOY_HOST_KEY'
-$knownHosts = Get-Setting 'DEPLOY_KNOWN_HOSTS'
-$fingerprint = Get-Setting 'DEPLOY_FP'
-$alias = Get-Setting 'DEPLOY_HOST_KEY_ALIAS' $serverHost
+$serverName = Get-Setting 'DEPLOY_SERVER'
+if ($serverName) {
+  # Central mode: everything about the server comes from the runner's own config,
+  # so ten repositories share one server list and one key. Change an IP once there.
+  $configDir = Get-Setting 'CI_DEPLOY_HOME' (Join-Path $env:ProgramData 'ci-deploy')
+  $configFile = Join-Path $configDir 'servers.json'
+  if (-not (Test-Path -LiteralPath $configFile)) { throw "Central server config not found: $configFile" }
+  $config = [IO.File]::ReadAllText($configFile, $utf8) | ConvertFrom-Json
+  $serverProp = $config.servers.PSObject.Properties[$serverName]
+  if ($null -eq $serverProp) { throw "Server '$serverName' is not defined in $configFile" }
+  $s = $serverProp.Value
+  function Get-ServerField([string] $Name, [string] $Default = '') {
+    $p = $s.PSObject.Properties[$Name]
+    if ($null -eq $p -or [string]::IsNullOrWhiteSpace([string]$p.Value)) { return $Default }
+    return ([string]$p.Value).Trim()
+  }
+  $serverHost = Get-ServerField 'host'
+  $port = Get-ServerField 'port' '22'
+  $user = Get-ServerField 'user'
+  $auth = (Get-ServerField 'auth' 'key').ToLowerInvariant()
+  $hostKey = Get-ServerField 'hostKey'
+  $knownHosts = ''
+  $fingerprint = Get-ServerField 'fingerprint'
+  $alias = $serverHost
+  $keyText = ''
+  $keyPath = Get-ServerField 'keyFile' (Join-Path $configDir 'id_deploy')
+  if (-not [IO.Path]::IsPathRooted($keyPath)) { $keyPath = Join-Path $configDir $keyPath }
+  Write-Host "Server $serverName from $configFile"
+}
+else {
+  $serverHost = Get-Setting 'DEPLOY_HOST'
+  $port = Get-Setting 'DEPLOY_PORT' '22'
+  $user = Get-Setting 'DEPLOY_USER'
+  $auth = (Get-Setting 'DEPLOY_AUTH' 'key').ToLowerInvariant()
+  $hostKey = Get-Setting 'DEPLOY_HOST_KEY'
+  $knownHosts = Get-Setting 'DEPLOY_KNOWN_HOSTS'
+  $fingerprint = Get-Setting 'DEPLOY_FP'
+  $alias = Get-Setting 'DEPLOY_HOST_KEY_ALIAS' $serverHost
+  $keyText = Get-Setting 'DEPLOY_KEY'
+  $keyPath = Get-Setting 'DEPLOY_KEY_FILE'
+}
 
-if ($serverHost -notmatch '^[A-Za-z0-9.\-]+$') { throw 'DEPLOY_HOST is missing or invalid' }
-if ($port -notmatch '^\d{1,5}$') { throw 'DEPLOY_PORT is invalid' }
-if ($user -notmatch '^[A-Za-z_][A-Za-z0-9_-]*$') { throw 'DEPLOY_USER is missing or invalid' }
+if ($serverHost -notmatch '^[A-Za-z0-9.\-]+$') { throw 'Server host is missing or invalid (servers.json "host" or DEPLOY_HOST)' }
+if ($port -notmatch '^\d{1,5}$') { throw 'SSH port is invalid (servers.json "port" or DEPLOY_PORT)' }
+if ($user -notmatch '^[A-Za-z_][A-Za-z0-9_-]*$') { throw 'SSH user is missing or invalid (servers.json "user" or DEPLOY_USER)' }
 if ($auth -notin @('key', 'password')) { throw 'DEPLOY_AUTH must be key or password' }
 if (-not $hostKey -and -not $knownHosts -and -not $fingerprint) {
   throw 'Configure DEPLOY_HOST_KEY, DEPLOY_KNOWN_HOSTS or DEPLOY_FP so the server identity is verified'
@@ -168,14 +206,12 @@ try {
   if ($auth -eq 'key') {
     Get-Command ssh.exe, scp.exe, ssh-keygen.exe -ErrorAction Stop | Out-Null
     $keyFile = Join-Path $work 'id_deploy'
-    $keyText = Get-Setting 'DEPLOY_KEY'
-    $keyPath = Get-Setting 'DEPLOY_KEY_FILE'
     if ($keyText) {
       $keyText = ($keyText -replace '\\n', "`n" -replace "`r", '').TrimEnd("`n") + "`n"
       [IO.File]::WriteAllText($keyFile, $keyText, $utf8)
     }
     elseif ($keyPath -and (Test-Path -LiteralPath $keyPath)) { Copy-Item -LiteralPath $keyPath -Destination $keyFile }
-    else { throw 'Key authentication needs DEPLOY_KEY or DEPLOY_KEY_FILE' }
+    else { throw "No private key: set DEPLOY_KEY / DEPLOY_KEY_FILE, or put the key at $keyPath" }
     Protect-File $keyFile
     $opts = @('-i', $keyFile, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', "Port=$port",
       '-o', 'StrictHostKeyChecking=yes', '-o', "UserKnownHostsFile=$hostsFile", '-o', "HostKeyAlias=$alias",

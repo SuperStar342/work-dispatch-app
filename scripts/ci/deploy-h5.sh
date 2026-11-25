@@ -1,24 +1,37 @@
 #!/usr/bin/env bash
 # 在服务器上发布报工 H5。由 scripts/ci/deploy.ps1 在解压后的部署包目录中调用：
 #
-#   bash deploy-h5.sh <发布目录>
+#   bash deploy-h5.sh <发布目录>            发布部署包里的新版本
+#   bash deploy-h5.sh <发布目录> rollback   切回上一版（再执行一次会切回来）
 #
 # 发布目录以 /work 结尾时使用 site-work（/work/ 子路径构建），否则使用 site-root。
 # 先备份当前文件，发布后确认 Nginx 已经返回新版本入口文件；任何一步失败都自动恢复。
+# 每次发布成功后，发布前的版本保存在 ~/ci-deploy-state/ 下，供 rollback 使用。
 set -euo pipefail
 
 deploy_path="${1:?缺少发布目录}"
 deploy_path="${deploy_path%/}"
+mode="${2:-deploy}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 backup="$here/backup"
 local_url="${H5_LOCAL_URL:-http://127.0.0.1:8081}"
 container=vue-frontend-nginx
+state="$HOME/ci-deploy-state/h5$(tr '/' '_' <<<"$deploy_path")"
 
 case "$deploy_path" in
   */work) site="$here/site-work"; prefix=/work ;;
   /*/*)   site="$here/site-root"; prefix='' ;;
   *) echo "发布目录必须是具体的绝对路径：$deploy_path" >&2; exit 1 ;;
 esac
+if [[ "$mode" == rollback ]]; then
+  [[ -s "$state/index.html" ]] || { echo '服务器上没有保存的上一版，无法回滚' >&2; exit 1; }
+  rm -rf -- "$here/previous"
+  cp -a "$state" "$here/previous"
+  site="$here/previous"
+  echo "切回上一版"
+elif [[ "$mode" != deploy ]]; then
+  echo "不支持的模式：$mode" >&2; exit 1
+fi
 test -s "$site/index.html" || { echo "部署包缺少 $site/index.html" >&2; exit 1; }
 echo "发布用户：$(id -un)，目录：$deploy_path"
 
@@ -108,6 +121,15 @@ echo "实际入口：$actual"
 if [[ -z "$expected" || "$actual" != "$expected" ]]; then
   echo "Nginx 没有返回刚发布的文件，请检查 $container 的挂载目录" >&2
   exit 1
+fi
+
+# 保存发布前的版本，供下次回滚使用。
+if [[ "$has_backup" == true && -s "$backup/index.html" ]]; then
+  mkdir -p "$(dirname "$state")"
+  rm -rf -- "$state.new"
+  cp -a "$backup" "$state.new"
+  rm -rf -- "$state"
+  mv "$state.new" "$state"
 fi
 
 echo "发布完成：$deploy_path"

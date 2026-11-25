@@ -20,6 +20,10 @@ on:
         description: 只测试 SSH 连通性，不构建不部署
         type: boolean
         default: false
+      rollback:
+        description: 回滚到上一版（不构建，把所选服务器切回最近一次部署前的版本；再执行一次会切回来）
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +36,8 @@ env:
   PACKAGE: work-dispatch-h5.tar.gz
   RELEASE_TAG: ci-h5-${{ github.run_id }}
   CHECK_ONLY: ${{ inputs.check_only == true }}
+  ROLLBACK: ${{ inputs.rollback == true }}
+  SKIP_BUILD: ${{ inputs.check_only == true || inputs.rollback == true }}
 
 jobs:
   build:
@@ -59,24 +65,24 @@ jobs:
         run: bash scripts/ci/select-targets.sh
 
       - name: 安装 pnpm
-        if: env.CHECK_ONLY != 'true'
+        if: env.SKIP_BUILD != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: 安装 Node.js
-        if: env.CHECK_ONLY != 'true'
+        if: env.SKIP_BUILD != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: 安装依赖
-        if: env.CHECK_ONLY != 'true'
+        if: env.SKIP_BUILD != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: 构建根路径和 /work 子路径两个版本
-        if: env.CHECK_ONLY != 'true'
+        if: env.SKIP_BUILD != 'true'
         run: |
           set -euo pipefail
           collect() {
@@ -98,7 +104,7 @@ jobs:
           tar -czf "$PACKAGE" -C package .
 
       - name: 上传部署包到临时 Release
-        if: env.CHECK_ONLY != 'true' && github.event_name != 'pull_request'
+        if: env.SKIP_BUILD != 'true' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -132,23 +138,23 @@ jobs:
         shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {0}
         env:
           GH_TOKEN: ${{ github.token }}
-          # ---- 服务器连接（三个仓库相同）：地址在 deploy-targets.json，密钥在 Secret ----
-          DEPLOY_HOST: ${{ matrix.host }}
-          DEPLOY_PORT: ${{ matrix.port || vars.DEPLOY_PORT || '22' }}
-          DEPLOY_USER: ${{ matrix.user || vars.DEPLOY_USER || secrets.DEPLOY_USER }}
-          DEPLOY_AUTH: ${{ matrix.auth || 'key' }}
-          # DEPLOY_SSH_KEY 是旧名称，过渡期间兼容。
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY || secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_PASSWORD: ${{ secrets.DEPLOY_PASSWORD }}
-          DEPLOY_HOST_KEY: ${{ matrix.hostKey }}
-          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_FP: ${{ vars.DEPLOY_FP }}
+          # 服务器地址、用户、主机公钥、私钥都由部署 Runner 上的
+          # C:/ProgramData/ci-deploy/servers.json 提供，这里只传服务器名字。
+          DEPLOY_SERVER: ${{ matrix.name }}
           # ---- 本仓库的部署参数 ----
           SITE_DIR: ${{ matrix.dir || vars.DEPLOY_PATH }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:CHECK_ONLY -eq 'true') {
             & .\scripts\ci\deploy.ps1 -CheckOnly
+          }
+          elseif ($env:ROLLBACK -eq 'true') {
+            # 回滚不需要构建：只把发布脚本传到服务器，切回服务器上保存的上一版。
+            if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$') { throw "没有发布目录：$env:SITE_DIR" }
+            $pkg = Join-Path $env:RUNNER_TEMP "rollback-$env:GITHUB_RUN_ID.tar.gz"
+            & tar.exe -czf $pkg -C scripts\ci deploy-h5.sh
+            if ($LASTEXITCODE -ne 0) { throw '打包发布脚本失败' }
+            & .\scripts\ci\deploy.ps1 -Package $pkg -Entry deploy-h5.sh -Arguments @($env:SITE_DIR, 'rollback')
           }
           else {
             if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:SITE_DIR -eq '/') {
@@ -162,7 +168,7 @@ jobs:
   cleanup:
     name: 删除临时 Release
     needs: [build, deploy]
-    if: always() && needs.deploy.result == 'success' && inputs.check_only != true
+    if: always() && needs.deploy.result == 'success' && inputs.check_only != true && inputs.rollback != true
     runs-on: ubuntu-latest
     permissions:
       contents: write

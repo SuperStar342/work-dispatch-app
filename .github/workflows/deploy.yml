@@ -57,6 +57,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: 检查 PowerShell 步骤只含 ASCII
+        run: python3 scripts/ci/check-workflows.py
+
       - name: 选择部署服务器
         id: targets
         env:
@@ -149,16 +152,16 @@ jobs:
             & .\scripts\ci\deploy.ps1 -CheckOnly
           }
           elseif ($env:ROLLBACK -eq 'true') {
-            # 回滚不需要构建：只把发布脚本传到服务器，切回服务器上保存的上一版。
-            if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$') { throw "没有发布目录：$env:SITE_DIR" }
+            # Rollback needs no build: upload only the publish script and restore the version kept on the server.
+            if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$') { throw "No publish directory: $env:SITE_DIR" }
             $pkg = Join-Path $env:RUNNER_TEMP "rollback-$env:GITHUB_RUN_ID.tar.gz"
             & tar.exe -czf $pkg -C scripts\ci deploy-h5.sh
-            if ($LASTEXITCODE -ne 0) { throw '打包发布脚本失败' }
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to pack the publish script' }
             & .\scripts\ci\deploy.ps1 -Package $pkg -Entry deploy-h5.sh -Arguments @($env:SITE_DIR, 'rollback')
           }
           else {
             if ($env:SITE_DIR -notmatch '^/[A-Za-z0-9._/-]+$' -or $env:SITE_DIR -eq '/') {
-              throw "没有发布目录：请在 deploy-targets.json 给 $env:DEPLOY_HOST 写 dir，或在 Environment 设置变量 DEPLOY_PATH"
+              throw "No publish directory: set dir in deploy-targets.json or the DEPLOY_PATH variable"
             }
             & .\scripts\ci\deploy.ps1 -ReleaseTag $env:RELEASE_TAG -AssetName $env:PACKAGE -Entry deploy-h5.sh -Arguments @($env:SITE_DIR)
           }
